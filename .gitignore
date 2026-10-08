@@ -2,6 +2,8 @@
 **/bin/
 **/obj/
 artifacts/
+# Keep the local task journal, but do not publish internal working documents.
+/docs/
 .publish/
 .vs/
 TestResults/
