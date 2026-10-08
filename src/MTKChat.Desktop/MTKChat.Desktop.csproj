@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.17763.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\mtk-chat.ico</ApplicationIcon>
+    <FileVersion>2026.10.8.1</FileVersion>
+    <InformationalVersion>2026.10.08-inline-emojis-key-status</InformationalVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Assets\mtk-chat.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\chat-mountains.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(PkgSoundTouch_Net)/LICENSE/LICENSE" Link="Licenses/SoundTouch-LGPL.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.4.0" />
+    <PackageReference Include="SoundTouch.Net" Version="2.3.2" GeneratePathProperty="true" />
+    <PackageReference Include="DevExpress.Win" Version="26.1.5" />
+    <ProjectReference Include="../MTKChat.Contracts/MTKChat.Contracts.csproj" />
+    <ProjectReference Include="../MTKChat.Cryptography/MTKChat.Cryptography.csproj" />
+  </ItemGroup>
+</Project>

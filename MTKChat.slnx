@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/MTKChat.Contracts/MTKChat.Contracts.csproj" />
+  <Project Path="src/MTKChat.Cryptography/MTKChat.Cryptography.csproj" />
+  <Project Path="src/MTKChat.Server/MTKChat.Server.csproj" />
+  <Project Path="src/MTKChat.Desktop/MTKChat.Desktop.csproj" />
+  <Project Path="tests/MTKChat.Cryptography.Tests/MTKChat.Cryptography.Tests.csproj" />
+</Solution>

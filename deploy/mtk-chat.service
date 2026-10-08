@@ -1,0 +1,33 @@
+[Unit]
+Description=MTK Chat API
+After=network-online.target mysql.service
+Wants=network-online.target mysql.service
+
+[Service]
+Type=simple
+User=mtk-chat
+Group=mtk
+WorkingDirectory=/opt/mtk-chat/current
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5088
+Environment=Database__Provider=MySQL
+Environment=Agents__KeyStorePath=/etc/mtk-chat/agent-keys.json
+EnvironmentFile=/etc/mtk/mtk.env
+ExecStart=/opt/mtk-chat/current/MTKChat.Server
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/mtk-chat
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

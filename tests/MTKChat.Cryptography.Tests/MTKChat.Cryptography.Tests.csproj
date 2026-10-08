@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio.Core" Version="2.4.0" />
+    <PackageReference Include="SoundTouch.Net" Version="2.3.2" />
+    <Compile Include="../../src/MTKChat.Desktop/TempoSampleProvider.cs" Link="TempoSampleProvider.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/ChatApiClient.cs" Link="Desktop/ChatApiClient.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/GroupInviteLink.cs" Link="Desktop/GroupInviteLink.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/ChatApiClient.Calls.cs" Link="Desktop/ChatApiClient.Calls.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/CallAudio.cs" Link="Desktop/CallAudio.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/CallSession.cs" Link="Desktop/CallSession.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/EmojiCatalog.cs" Link="Desktop/EmojiCatalog.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/ChatApiClient.Statuses.cs" Link="Desktop/ChatApiClient.Statuses.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/ChatRequestPolicy.cs" Link="Desktop/ChatRequestPolicy.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/ChatTransportException.cs" Link="Desktop/ChatTransportException.cs" />
+    <Compile Include="../../src/MTKChat.Desktop/ChatTransportHandler.cs" Link="Desktop/ChatTransportHandler.cs" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/MTKChat.Cryptography/MTKChat.Cryptography.csproj" />
+    <ProjectReference Include="../../src/MTKChat.Server/MTKChat.Server.csproj" />
+  </ItemGroup>
+</Project>

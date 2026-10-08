@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <UserSecretsId>mtkchat-server-development</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="InviteWeb/*" LogicalName="MTKChat.InviteWeb.%(Filename)%(Extension)" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.4" />
+    <PackageReference Include="MySqlConnector" Version="2.6.2" />
+    <ProjectReference Include="../MTKChat.Contracts/MTKChat.Contracts.csproj" />
+    <ProjectReference Include="../MTKChat.Cryptography/MTKChat.Cryptography.csproj" />
+  </ItemGroup>
+</Project>

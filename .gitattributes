@@ -1,0 +1,7 @@
+# Keep shell/service/config sources portable across Windows and Linux clones.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+
+# A unified diff uses one significant space for an empty context line.
+*.patch whitespace=-blank-at-eol

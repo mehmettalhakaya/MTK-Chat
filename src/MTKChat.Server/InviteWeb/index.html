@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>Grup daveti · MTK Chat</title>
+  <link rel="stylesheet" href="../invite-assets/invite.css">
+  <script src="../invite-assets/invite.js" defer></script>
+</head>
+<body>
+  <main class="portal">
+    <section class="identity">
+      <div class="brand"><span class="logo">MTK</span><span>MTK <strong>Chat</strong></span></div>
+      <div class="intro"><span class="eyebrow">GRUP DAVETİ</span><h1>Bir araya<br>gelelim.</h1><p>Yeni konuşmalar, aynı güvenli alan.</p></div>
+      <div class="seal"><span class="seal-dot"></span> mtkaya.me</div>
+    </section>
+    <section class="panel">
+      <div id="login-view">
+        <span class="eyebrow">HESABINA BAĞLAN</span><h2>Gruba katıl.</h2>
+        <p class="subtitle">mtkaya.me hesabınla giriş yap.</p>
+        <form id="login-form" method="post" action="../api/auth/login">
+          <label for="username">Kullanıcı adı veya e-posta</label>
+          <input id="username" name="username" autocomplete="username" maxlength="254" required>
+          <label for="password">Parola</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+          <a class="forgot" href="https://mtkaya.me/loginregister.html" rel="noreferrer">Şifremi unuttum ↗</a>
+          <button id="login-button" type="submit">Giriş yap <span>↗</span></button>
+        </form>
+      </div>
+      <div id="join-view" hidden>
+        <span class="eyebrow">SANA BİR DAVET VAR</span>
+        <div class="group-avatar" aria-hidden="true">MTK</div>
+        <h2 id="group-title"></h2>
+        <p id="signed-in" class="subtitle"></p>
+        <div class="expiry"><span>Davetin geçerlilik süresi</span><strong id="expires"></strong></div>
+        <button id="join-button" type="button">Gruba katıl <span>→</span></button>
+        <button id="switch-button" type="button" class="secondary">Hesabı değiştir</button>
+      </div>
+      <div id="done-view" hidden>
+        <div class="success-mark" aria-hidden="true">✓</div>
+        <span class="eyebrow">BAĞLANTI TAMAM</span><h2 id="done-title">Gruba katıldın.</h2>
+        <p id="done-description" class="subtitle">MTK Chat uygulamasını aç; grup sohbet listende görünecek.</p>
+        <button id="done-button" type="button" class="secondary">Başka hesapla katıl</button>
+      </div>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+</body>
+</html>
