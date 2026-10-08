@@ -48,6 +48,16 @@ internal sealed partial class MainForm
 
     private bool IsFavoriteConversation(Guid roomId) => ChatPreferences()?.IsFavorite(roomId) == true;
 
+    private bool IsPinnedConversation(Guid roomId) => ChatPreferences()?.IsPinned(roomId) == true;
+
+    private void SetPinnedConversation(Guid roomId, bool pinned)
+    {
+        EnsurePreferencesWritable();
+        ChatPreferences()?.SetPinned(roomId, pinned);
+        RefreshPersonalConversationIndicators();
+        ApplyConversationOrder();
+    }
+
     private void SetFavoriteConversation(Guid roomId, bool favorite)
     {
         EnsurePreferencesWritable();

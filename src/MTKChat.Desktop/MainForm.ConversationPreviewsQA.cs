@@ -105,7 +105,7 @@ internal sealed partial class MainForm
             form.ReconcileConversationPreviews([room, cleared, empty]);
             Require(Preview(fixture.Card(other)).Text == "" && !form._conversationPreviews.ContainsKey(other.Id),
                 "An empty authoritative summary immediately removes previously decrypted cached text");
-            Require(Clock(fixture.Card(other)) == "", "Clearing the authoritative last-message summary also removes the clock");
+            Require(Clock(fixture.Card(other)) == ConversationTime(advanced.CreatedAt), "Clearing visible history keeps the observed activity clock on a legacy server");
             // A timestamp rollback is not an unchanged lagging summary: it removes
             // a newer deleted/blocked line even if an older message remains.
             var rolledBack = room with { LastMessageAt = room.LastMessageAt!.Value.AddDays(-1) };
@@ -264,12 +264,12 @@ internal sealed partial class MainForm
             HistoryQaPump(form.RefreshMessagesAsync(true));
             Require(Preview(fixture.Card(room)).Text == "Silinen mesajdan önceki gerçek mesaj",
                 "After the latest message is deleted, the preceding authenticated message is shown even before metadata catches up");
-            Require(Clock(fixture.Card(room)) == ConversationTime(earlier.CreatedAt),
-                "Deleting the latest message rolls the clock back with the preceding visible message");
+            Require(Clock(fixture.Card(room)) == ConversationTime(own.CreatedAt),
+                "Deleting the latest message retains its activity clock independently of the preceding preview");
             fixture.Handler.Messages[room.Id] = [own with { DeletedForEveryone = true }];
             HistoryQaPump(form.RefreshMessagesAsync(true));
             Require(Preview(fixture.Card(room)).Text == "", "Deleted-for-everyone content is never resurrected as a latest preview");
-            Require(Clock(fixture.Card(room)) == "", "Deleting the only remaining visible message clears the clock despite stale metadata");
+            Require(Clock(fixture.Card(room)) == ConversationTime(own.CreatedAt), "Deleting the only remaining visible message preserves its activity clock without its content");
         }
         Require(PreviewLine("image/png", "") == "Fotoğraf" && PreviewLine("audio/wav", "") == "Sesli mesaj" &&
             PreviewLine("file", "▤  rapor.pdf\n123 KB\n↓ Kaydet") == "rapor.pdf",

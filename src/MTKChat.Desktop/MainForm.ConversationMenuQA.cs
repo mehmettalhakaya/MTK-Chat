@@ -24,7 +24,7 @@ internal sealed partial class MainForm
             checks.Add(check);
         }
 
-        var groupRoot = new[] { "Favorilere ekle", "Yıldızlı mesajlar", "Sohbeti arşivle", "Bildirimleri sessize al",
+        var groupRoot = new[] { "Sohbeti sabitle", "Favorilere ekle", "Yıldızlı mesajlar", "Sohbeti arşivle", "Bildirimleri sessize al",
             "Grup üyelerini görüntüle", "Grup seçenekleri", "Bu grup mesajlarını sil", "Bu sohbeti sil", "Gruptan çık" };
         var groupActions = new[] { "Grup adını değiştir", "Davet bağlantılarını yönet", "Grup fotoğrafını düzenle", "Grup yönetimi" };
         var options = (ToolStripMenuItem)ConversationMenuItem(menu, "Grup seçenekleri");
@@ -47,7 +47,7 @@ internal sealed partial class MainForm
             };
             menu.Show(card, new Point(4, 4)); Application.DoEvents();
             Require(ConversationMenuCommands(menu).Select(item => item.Text).SequenceEqual(groupRoot),
-                name + ": actual group root keeps nine common, member, grouped and destructive commands");
+                name + ": actual group root keeps ten common, member, grouped and destructive commands");
             Require(groupActions.All(title => menu.Items.Cast<ToolStripItem>().All(item => item.Text != title)),
                 name + ": group editing commands are nested rather than lengthening the root");
             if (name == "site-admin") VerifyConversationMenuHover(menu, options, Require, name);
@@ -57,7 +57,7 @@ internal sealed partial class MainForm
                 ConversationMenuItem(options.DropDown, "Grup yönetimi").Available == manage &&
                 ConversationMenuItem(options.DropDown, "Grup fotoğrafını düzenle").Available,
                 name + ": nested actions retain the existing rename, invite, photo and management permissions");
-            VerifyConversationMenuSurface(menu, Require, name + " root", maxHeight: 360);
+            VerifyConversationMenuSurface(menu, Require, name + " root", maxHeight: 400);
             VerifyConversationMenuSurface(options.DropDown, Require, name + " options");
             if (name is "site-admin" or "group-mod" or "member")
                 CaptureConversationMenu(menu, options, Path.Combine(directory, "conversation-menu-" + name + ".png"));
@@ -156,10 +156,10 @@ internal sealed partial class MainForm
             var directMenu = (ModernContextMenu)directCard.ContextMenuStrip!;
             directMenu.Show(directCard, new Point(4, 4)); Application.DoEvents();
             Require(ConversationMenuCommands(directMenu).Select(item => item.Text).SequenceEqual(new[]
-                { "Favorilere ekle", "Yıldızlı mesajlar", "Sohbeti arşivle", "Bildirimleri sessize al",
+                { "Sohbeti sabitle", "Favorilere ekle", "Yıldızlı mesajlar", "Sohbeti arşivle", "Bildirimleri sessize al",
                     "Sohbet bilgileri", "Bu sohbetin mesajlarını sil", "Bu sohbeti sil" }),
-                "The actual direct menu keeps seven commands and exposes no group actions or Leave");
-            VerifyConversationMenuSurface(directMenu, Require, "direct root", maxHeight: 300);
+                "The actual direct menu keeps eight commands and exposes no group actions or Leave");
+            VerifyConversationMenuSurface(directMenu, Require, "direct root", maxHeight: 330);
             VerifyConversationMenuHover(directMenu, directMenu.Items[0], Require, "direct");
             CaptureConversationMenu(directMenu, null, Path.Combine(directory, "conversation-menu-direct.png"));
             directMenu.Close();

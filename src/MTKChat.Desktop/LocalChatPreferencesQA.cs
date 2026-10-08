@@ -47,14 +47,18 @@ internal static class LocalChatPreferencesQA
         var store = LocalChatPreferences.Open(accountA, probe);
         Require(store.IsPersistent && store.UserId == accountA, "Explicit QA directory opens an account-bound persistent store");
         Require(!File.Exists(PathFor(accountA)), "Opening an empty store does not create a preference file");
-        Require(!store.IsFavorite(roomA) && store.StarredIds(roomA).Count == 0,
-            "New account starts without favorites or starred messages");
+        Require(!store.IsFavorite(roomA) && store.StarredIds(roomA).Count == 0 && !store.IsPinned(roomA),
+            "New account starts without favorites, starred messages or pinned conversations");
 
         store.SetFavorite(roomA, true);
         store.SetFavorite(roomB, true);
         store.SetStarred(roomA, messageA, true);
         store.SetStarred(roomA, messageB, true);
         store.SetStarred(roomB, messageA, true);
+        store.SetPinned(roomA, true);
+        store.SetPinned(roomB, true);
+        Require(store.IsPinned(roomA) && store.IsPinned(roomB),
+            "Group and direct conversation IDs can be pinned independently without a product-specific pin count cap");
         Require(store.IsFavorite(roomA) && store.IsFavorite(roomB), "Two rooms can independently be favorites");
         Require(store.IsStarred(roomA, messageA) && store.IsStarred(roomA, messageB) && store.IsStarred(roomB, messageA),
             "Stars are keyed by room and message rather than message ID alone");
@@ -75,12 +79,15 @@ internal static class LocalChatPreferencesQA
                 !encryptedText.Contains(messageA.ToString(), StringComparison.Ordinal), "Account, room and message IDs are not visible in the file");
             using var json = JsonDocument.Parse(plain);
             var data = json.RootElement;
-            Require(data.EnumerateObject().Select(p => p.Name).ToHashSet().SetEquals(new[] { "Version", "UserId", "Favorites", "Stars", "Archived", "Mutes" }),
-                "Decrypted preference schema contains only version, owner, bookmark/archive IDs and mute deadlines");
-            Require(data.GetProperty("Version").GetInt32() == 2 && data.GetProperty("UserId").GetGuid() == accountA,
+            Require(data.EnumerateObject().Select(p => p.Name).ToHashSet().SetEquals(new[] { "Version", "UserId", "Favorites", "Stars", "Archived", "Mutes", "Pins" }),
+                "Decrypted preference schema contains only version, owner, bookmark/archive/pin IDs and mute deadlines");
+            Require(data.GetProperty("Version").GetInt32() == 3 && data.GetProperty("UserId").GetGuid() == accountA,
                 "Decrypted preference payload identifies its schema version and account");
             Require(data.GetProperty("Favorites").EnumerateArray().All(p => p.ValueKind == JsonValueKind.String && p.TryGetGuid(out _)),
                 "Favorites serialize IDs only, without room names or conversation text");
+            Require(data.GetProperty("Pins").EnumerateArray().All(p => p.ValueKind == JsonValueKind.String && p.TryGetGuid(out _)) &&
+                data.GetProperty("Pins").GetArrayLength() == 2,
+                "Conversation pins serialize room IDs only, without names, messages, keys or other account data");
             Require(data.GetProperty("Stars").EnumerateArray().All(p =>
                 p.EnumerateObject().Select(property => property.Name).ToHashSet().SetEquals(new[] { "RoomId", "MessageId" }) &&
                 p.GetProperty("RoomId").TryGetGuid(out _) && p.GetProperty("MessageId").TryGetGuid(out _)),
@@ -92,7 +99,8 @@ internal static class LocalChatPreferencesQA
 
         var reopened = LocalChatPreferences.Open(accountA, probe);
         Require(reopened.IsFavorite(roomA) && reopened.IsFavorite(roomB) && reopened.IsStarred(roomA, messageA) &&
-            reopened.IsStarred(roomB, messageA), "Favorites and stars survive store reopen");
+            reopened.IsStarred(roomB, messageA) && reopened.IsPinned(roomA) && reopened.IsPinned(roomB),
+            "Favorites, stars and independent conversation pins survive store reopen");
         var originalWriteTime = File.GetLastWriteTimeUtc(PathFor(accountA));
         for (var i = 0; i < 20; i++)
         {
@@ -100,6 +108,8 @@ internal static class LocalChatPreferencesQA
             reopened.SetStarred(roomA, messageA, true);
             reopened.SetFavorite(Id(12), false);
             reopened.SetStarred(roomA, Id(102), false);
+            reopened.SetPinned(roomA, true);
+            reopened.SetPinned(Id(12), false);
         }
         Require(File.ReadAllBytes(PathFor(accountA)).AsSpan().SequenceEqual(protectedBytes) &&
             File.GetLastWriteTimeUtc(PathFor(accountA)) == originalWriteTime,
@@ -107,19 +117,24 @@ internal static class LocalChatPreferencesQA
 
         reopened.SetFavorite(roomB, false);
         reopened.SetStarred(roomA, messageA, false);
+        reopened.SetPinned(roomB, false);
         var afterRemoval = LocalChatPreferences.Open(accountA, probe);
         Require(afterRemoval.IsFavorite(roomA) && !afterRemoval.IsFavorite(roomB) &&
             !afterRemoval.IsStarred(roomA, messageA) && afterRemoval.IsStarred(roomB, messageA) &&
-            afterRemoval.IsStarred(roomA, messageB), "Removal survives restart and preserves bookmarks in the other room");
+            afterRemoval.IsStarred(roomA, messageB) && afterRemoval.IsPinned(roomA) && !afterRemoval.IsPinned(roomB),
+            "Bookmark and pin removal survive restart and preserve independent metadata in the other room");
 
         var otherAccount = LocalChatPreferences.Open(accountB, probe);
-        Require(!otherAccount.IsFavorite(roomA) && !otherAccount.IsStarred(roomB, messageA),
+        Require(!otherAccount.IsFavorite(roomA) && !otherAccount.IsStarred(roomB, messageA) && !otherAccount.IsPinned(roomA),
             "Another chat account starts isolated even on the same Windows account");
         otherAccount.SetFavorite(roomB, true);
         otherAccount.SetStarred(roomB, messageB, true);
+        otherAccount.SetPinned(roomB, true);
         Require(File.Exists(PathFor(accountB)) && !afterRemoval.IsFavorite(roomB) && !afterRemoval.IsStarred(roomB, messageB),
             "Other-account updates use a separate file and do not change the first account");
-        Require(LocalChatPreferences.Open(accountB, probe).IsStarred(roomB, messageB), "Second account reopens its own bookmarks");
+        Require(LocalChatPreferences.Open(accountB, probe).IsStarred(roomB, messageB) &&
+            LocalChatPreferences.Open(accountB, probe).IsPinned(roomB) && !afterRemoval.IsPinned(roomB),
+            "Second account reopens its own bookmarks and pins without changing the first account");
 
         var now = new DateTimeOffset(2026, 10, 6, 12, 0, 0, TimeSpan.Zero);
         afterRemoval.SetArchived(roomA, true);
@@ -128,8 +143,8 @@ internal static class LocalChatPreferencesQA
         afterRemoval.SetMute(roomB, null, now);
         var personal = LocalChatPreferences.Open(accountA, probe);
         Require(personal.IsArchived(roomA) && personal.IsArchived(roomB) &&
-            personal.IsMuted(roomA, now) && personal.IsMuted(roomB, now),
-            "Personal archive and finite/unlimited mute survive DPAPI store reopen");
+            personal.IsMuted(roomA, now) && personal.IsMuted(roomB, now) && personal.IsPinned(roomA) && !personal.IsPinned(roomB),
+            "Personal archive, finite/unlimited mute and pins survive DPAPI store reopen together");
         Require(personal.IsMuted(roomA, now.AddHours(8).AddTicks(-1)) && !personal.IsMuted(roomA, now.AddHours(8)) &&
             personal.IsMuted(roomB, DateTimeOffset.MaxValue), "Finite mute expires exactly at its deadline while unlimited mute stays active");
         Require(personal.MuteUntil(roomA) == now.AddHours(8) && personal.MuteUntil(roomB) is null,
@@ -156,9 +171,12 @@ internal static class LocalChatPreferencesQA
             RejectLockedReplacement(() => personal.SetArchived(roomA, false), "Failed archive write keeps the previous personal view");
             RejectLockedReplacement(() => personal.ClearMute(roomB), "Failed unmute write keeps the previous mute policy");
             RejectLockedReplacement(() => personal.SetMute(roomA, now.AddDays(7), now), "Failed duration change keeps the previous deadline");
+            RejectLockedReplacement(() => personal.SetPinned(roomA, false), "Failed unpin write keeps the previous conversation order policy");
+            RejectLockedReplacement(() => personal.SetPinned(roomB, true), "Failed pin write cannot change the in-memory conversation order");
             Require(personal.IsArchived(roomA) && personal.IsMuted(roomB, now) && personal.MuteUntil(roomA) == now.AddHours(8) &&
+                personal.IsPinned(roomA) && !personal.IsPinned(roomB) &&
                 File.ReadAllBytes(PathFor(accountA)).AsSpan().SequenceEqual(personalBaseline),
-                "Archive/mute mutations roll back both memory and ciphertext on an atomic replacement failure");
+                "Archive/mute/pin mutations roll back both memory and ciphertext on an atomic replacement failure");
         }
         personal.SetArchived(roomA, false); personal.ClearMute(roomA);
         Require(!personal.IsArchived(roomA) && !personal.IsMuted(roomA, now) && personal.IsArchived(roomB) && personal.IsMuted(roomB, now) &&
@@ -189,6 +207,8 @@ internal static class LocalChatPreferencesQA
         Reject<IOException>(() => blocked.SetFavorite(roomA, true), "A file in place of a directory rejects persistence");
         Require(!blocked.IsFavorite(roomA) && File.ReadAllText(blockedDirectory) == "qa-directory-blocker",
             "Directory creation failure leaves memory and the unrelated blocker file unchanged");
+        Reject<IOException>(() => blocked.SetPinned(roomA, true), "A directory creation failure rejects a pin write");
+        Require(!blocked.IsPinned(roomA), "A failed initial pin save leaves the memory state unchanged");
 
         var corruptAccount = Id(4);
         var corruptPath = PathFor(corruptAccount);
@@ -230,14 +250,36 @@ internal static class LocalChatPreferencesQA
         CryptographicOperations.ZeroMemory(legacyPlain);
         File.WriteAllBytes(PathFor(legacyAccount), legacyProtected);
         var migrated = LocalChatPreferences.Open(legacyAccount, probe);
-        Require(migrated.IsFavorite(roomA) && migrated.IsStarred(roomA, messageA) && !migrated.IsArchived(roomA) && !migrated.IsMuted(roomA, now),
-            "Version-1 preferences load existing bookmarks without inventing an archive or mute");
+        Require(migrated.IsFavorite(roomA) && migrated.IsStarred(roomA, messageA) && !migrated.IsArchived(roomA) &&
+            !migrated.IsMuted(roomA, now) && !migrated.IsPinned(roomA),
+            "Version-1 preferences load existing bookmarks without inventing an archive, mute or pin");
         Require(File.ReadAllBytes(PathFor(legacyAccount)).AsSpan().SequenceEqual(legacyProtected),
             "Loading legacy preferences alone never rewrites or migrates the file");
-        migrated.SetArchived(roomA, true);
-        Require(LocalChatPreferences.Open(legacyAccount, probe).IsArchived(roomA) &&
-            LocalChatPreferences.Open(legacyAccount, probe).IsStarred(roomA, messageA),
-            "The first legacy-account edit upgrades the schema while preserving favorites and stars");
+        migrated.SetPinned(roomA, true);
+        var migratedReopen = LocalChatPreferences.Open(legacyAccount, probe);
+        Require(migratedReopen.IsPinned(roomA) && migratedReopen.IsFavorite(roomA) &&
+            migratedReopen.IsStarred(roomA, messageA) && !migratedReopen.IsArchived(roomA) && !migratedReopen.IsMuted(roomA, now),
+            "The first version-1 pin edit upgrades the schema while preserving favorites and stars");
+        var legacyV2Account = Id(14);
+        var legacyV2Plain = JsonSerializer.SerializeToUtf8Bytes(new { Version = 2, UserId = legacyV2Account,
+            Favorites = new[] { roomA }, Stars = new[] { new { RoomId = roomA, MessageId = messageA } },
+            Archived = new[] { roomB }, Mutes = new[] { new { RoomId = roomA, Until = (DateTimeOffset?)now.AddHours(8) },
+                new { RoomId = roomB, Until = (DateTimeOffset?)null } } });
+        var legacyV2Protected = ProtectedData.Protect(legacyV2Plain, Entropy(legacyV2Account), DataProtectionScope.CurrentUser);
+        CryptographicOperations.ZeroMemory(legacyV2Plain);
+        File.WriteAllBytes(PathFor(legacyV2Account), legacyV2Protected);
+        var migratedV2 = LocalChatPreferences.Open(legacyV2Account, probe);
+        Require(!migratedV2.IsPinned(roomA) && migratedV2.IsFavorite(roomA) && migratedV2.IsStarred(roomA, messageA) &&
+            migratedV2.IsArchived(roomB) && migratedV2.MuteUntil(roomA) == now.AddHours(8) && migratedV2.IsMuted(roomB, now),
+            "Version-2 preferences load favorites, stars, archive and finite/unlimited mute with no invented pins");
+        Require(File.ReadAllBytes(PathFor(legacyV2Account)).AsSpan().SequenceEqual(legacyV2Protected),
+            "Opening version-2 preferences does not rewrite the account's existing ciphertext");
+        migratedV2.SetPinned(roomA, true);
+        var migratedV2Reopen = LocalChatPreferences.Open(legacyV2Account, probe);
+        Require(migratedV2Reopen.IsPinned(roomA) && migratedV2Reopen.IsFavorite(roomA) &&
+            migratedV2Reopen.IsStarred(roomA, messageA) && migratedV2Reopen.IsArchived(roomB) &&
+            migratedV2Reopen.MuteUntil(roomA) == now.AddHours(8) && migratedV2Reopen.IsMuted(roomB, now),
+            "A version-2 pin edit upgrades to version 3 without losing any existing personal preference");
         void InvalidV2(int suffix, object? mutes, string check)
         {
             var account = Id(suffix);
@@ -254,12 +296,64 @@ internal static class LocalChatPreferencesQA
         InvalidV2(13, new[] { new { RoomId = roomA, Until = (DateTimeOffset?)null }, new { RoomId = roomA, Until = (DateTimeOffset?)null } },
             "Version-2 preferences reject duplicate mute room IDs before dictionary construction");
 
+        void ProtectedFixture(Guid account, object data)
+        {
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(data);
+            try { File.WriteAllBytes(PathFor(account), ProtectedData.Protect(bytes, Entropy(account), DataProtectionScope.CurrentUser)); }
+            finally { CryptographicOperations.ZeroMemory(bytes); }
+        }
+        var optionalPinsAccount = Id(15);
+        ProtectedFixture(optionalPinsAccount, new { Version = 3, UserId = optionalPinsAccount,
+            Favorites = new[] { roomA }, Stars = Array.Empty<object>(), Archived = new[] { roomB }, Mutes = Array.Empty<object>() });
+        var optionalPins = LocalChatPreferences.Open(optionalPinsAccount, probe);
+        Require(!optionalPins.IsPinned(roomA) && optionalPins.IsFavorite(roomA) && optionalPins.IsArchived(roomB),
+            "Version-3 preferences accept an omitted optional Pins collection as empty without resetting other metadata");
+        optionalPins.SetPinned(roomA, true);
+        Require(LocalChatPreferences.Open(optionalPinsAccount, probe).IsPinned(roomA),
+            "The first pin is persisted correctly when Pins was previously omitted");
+
+        void InvalidPins(int suffix, int version, Guid[] pins, string check)
+        {
+            var account = Id(suffix);
+            ProtectedFixture(account, new { Version = version, UserId = account, Favorites = Array.Empty<Guid>(),
+                Stars = Array.Empty<object>(), Archived = Array.Empty<Guid>(), Mutes = Array.Empty<object>(), Pins = pins });
+            var baseline = File.ReadAllBytes(PathFor(account));
+            Reject<InvalidDataException>(() => LocalChatPreferences.Open(account, probe), check);
+            Require(File.ReadAllBytes(PathFor(account)).AsSpan().SequenceEqual(baseline), check + " — original file preserved");
+        }
+        InvalidPins(16, 3, [Guid.Empty], "Version-3 preferences reject an empty pinned conversation ID");
+        InvalidPins(17, 3, [roomA, roomA], "Version-3 preferences reject duplicate pinned conversation IDs");
+        InvalidPins(18, 4, [], "An unsupported future version is rejected rather than mistaken for version 3");
+        var boundaryPins = Enumerable.Range(100000, 20000).Select(Id).ToArray();
+        var boundaryAccount = Id(19);
+        ProtectedFixture(boundaryAccount, new { Version = 3, UserId = boundaryAccount, Favorites = Array.Empty<Guid>(),
+            Stars = Array.Empty<object>(), Archived = Array.Empty<Guid>(), Mutes = Array.Empty<object>(), Pins = boundaryPins });
+        var boundary = LocalChatPreferences.Open(boundaryAccount, probe);
+        Require(boundary.IsPinned(boundaryPins[0]) && boundary.IsPinned(boundaryPins[^1]),
+            "The storage boundary accepts 20,000 unique pins rather than imposing an arbitrary small pin cap");
+        var boundaryBaseline = File.ReadAllBytes(PathFor(boundaryAccount));
+        Reject<InvalidOperationException>(() => boundary.SetPinned(roomA, true),
+            "An additional pin beyond the aggregate personal preference limit is rejected");
+        Reject<InvalidOperationException>(() => boundary.SetFavorite(roomA, true),
+            "Pins count toward the shared storage bound when another preference type is added");
+        Require(!boundary.IsPinned(roomA) && !boundary.IsFavorite(roomA) &&
+            File.ReadAllBytes(PathFor(boundaryAccount)).AsSpan().SequenceEqual(boundaryBaseline),
+            "Storage-limit failures preserve both the existing pin set and complete ciphertext");
+        InvalidPins(20, 3, boundaryPins.Append(roomA).ToArray(),
+            "Loading too many unique pins rejects the entire unsupported payload without overwriting it");
+        var aggregateAccount = Id(21);
+        ProtectedFixture(aggregateAccount, new { Version = 3, UserId = aggregateAccount, Favorites = new[] { roomA },
+            Stars = Array.Empty<object>(), Archived = Array.Empty<Guid>(), Mutes = Array.Empty<object>(), Pins = boundaryPins });
+        Reject<InvalidDataException>(() => LocalChatPreferences.Open(aggregateAccount, probe),
+            "The read-side storage bound includes existing favorites as well as pins");
+
         Reject<ArgumentException>(() => LocalChatPreferences.Memory(Guid.Empty), "Memory mode rejects an empty account ID");
         Reject<ArgumentException>(() => LocalChatPreferences.Open(Guid.Empty, probe), "Persistent mode rejects an empty account ID");
         Reject<ArgumentException>(() => afterRemoval.SetFavorite(Guid.Empty, false), "Favorite toggles reject an empty room even for a no-op");
         Reject<ArgumentException>(() => afterRemoval.SetStarred(Guid.Empty, messageA, true), "Star toggles reject an empty room");
         Reject<ArgumentException>(() => afterRemoval.SetStarred(roomA, Guid.Empty, false), "Star toggles reject an empty message even for a no-op");
         Reject<ArgumentException>(() => afterRemoval.SetArchived(Guid.Empty, false), "Archive toggles reject an empty room even for a no-op");
+        Reject<ArgumentException>(() => afterRemoval.SetPinned(Guid.Empty, false), "Pin toggles reject an empty room even for a no-op");
         Reject<ArgumentException>(() => afterRemoval.SetMute(Guid.Empty, null, now), "Mute toggles reject an empty room");
         Reject<ArgumentException>(() => afterRemoval.ClearMute(Guid.Empty), "Unmute rejects an empty room even for a no-op");
         Reject<ArgumentOutOfRangeException>(() => afterRemoval.SetMute(roomA, now, now), "Mute rejects an already expired deadline");
@@ -271,12 +365,16 @@ internal static class LocalChatPreferencesQA
         memory.SetStarred(roomB, messageA, true);
         memory.SetStarred(roomA, messageA, false);
         memory.SetArchived(roomA, true); memory.SetMute(roomB, null, now);
+        memory.SetPinned(roomA, true); memory.SetPinned(roomB, true); memory.SetPinned(roomB, false);
         Require(!memory.IsPersistent && memory.IsFavorite(roomA) && !memory.IsStarred(roomA, messageA) &&
             memory.IsStarred(roomB, messageA), "Memory mode supports the same isolated bookmark toggles without persistence");
         Require(memory.IsArchived(roomA) && memory.IsMuted(roomB, now), "Memory mode supports personal archive and mute without files");
+        Require(memory.IsPinned(roomA) && !memory.IsPinned(roomB),
+            "Memory mode supports independent pin/unpin toggles without changing other preferences");
         Require(filesBeforeMemory.SequenceEqual(Directory.GetFiles(probe, "*", SearchOption.AllDirectories).OrderBy(p => p)) &&
             !File.Exists(PathFor(Id(6))), "Memory mode creates no files in the explicit synthetic preference directory");
-        Require(!LocalChatPreferences.Memory(Id(6)).IsFavorite(roomA), "A new memory-only store intentionally has no persisted state");
+        Require(!LocalChatPreferences.Memory(Id(6)).IsFavorite(roomA) && !LocalChatPreferences.Memory(Id(6)).IsPinned(roomA),
+            "A new memory-only store intentionally has no persisted bookmark or pin state");
         return checks;
     }
 

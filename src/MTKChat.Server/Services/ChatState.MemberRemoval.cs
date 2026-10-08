@@ -22,6 +22,8 @@ public sealed partial class ChatState
                 return GroupMemberRemovalStatus.ProtectedTarget;
 
             var key = (conversationId, targetId);
+            var oldActivity = _conversationActivity.GetValueOrDefault(key);
+            _conversationActivity.Remove(key);
             var hadRole = _groupRoles.Remove(key, out var oldRole);
             var wasLeft = _leftGroups.Contains(key);
             var wasHidden = _hiddenConversations.Remove(key);
@@ -37,6 +39,7 @@ public sealed partial class ChatState
             {
                 room.MemberIds.Add(targetId);
                 if (hadRole) _groupRoles[key] = oldRole!;
+                if (oldActivity is not null) _conversationActivity[key] = oldActivity;
                 if (!wasLeft) _leftGroups.Remove(key);
                 if (wasHidden) _hiddenConversations.Add(key);
                 if (clearedPresence) _activeConversation[targetId] = oldPresence;

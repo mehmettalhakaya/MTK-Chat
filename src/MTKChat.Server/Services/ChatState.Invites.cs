@@ -167,10 +167,12 @@ public sealed partial class ChatState
             var wasLeft = _leftGroups.Remove(key);
             var wasHidden = _hiddenConversations.Remove(key);
             var oldRole = _groupRoles.GetValueOrDefault(key);
+            var oldActivity = _conversationActivity.GetValueOrDefault(key);
             var newHidden = Array.Empty<Guid>();
             if (!wasMember)
             {
                 room.MemberIds.Add(userId);
+                _conversationActivity.Remove(key);
                 _groupRoles.Remove(key); // Rejoining is not a way to recover an old privileged role.
                 // Membership cannot grant historical decryption. Hide existing metadata as
                 // well, without changing any stored ciphertext or generating new envelopes.
@@ -183,6 +185,7 @@ public sealed partial class ChatState
                 if (wasLeft) _leftGroups.Add(key);
                 if (wasHidden) _hiddenConversations.Add(key);
                 if (oldRole is not null) _groupRoles[key] = oldRole;
+                if (oldActivity is not null) _conversationActivity[key] = oldActivity;
                 foreach (var id in newHidden) _hiddenMessages.Remove((userId, id));
                 throw;
             }

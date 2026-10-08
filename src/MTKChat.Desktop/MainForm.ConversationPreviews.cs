@@ -26,6 +26,7 @@ internal sealed partial class MainForm
         _previewOwner = _session?.User.Id;
         _previewSessionExpired = false;
         _conversationPreviews.Clear();
+        _conversationActivity.Clear();
         _previewRequests.Clear(); // Late continuations from another account cannot commit.
     }
 
@@ -40,21 +41,17 @@ internal sealed partial class MainForm
 
     private string ConversationPreviewTime(ConversationSummary room)
     {
-        EnsurePreviewOwner();
-        if (_conversationPreviews.TryGetValue(room.Id, out var preview) &&
-            (preview.SummaryAt == room.LastMessageAt || preview.LastAt == room.LastMessageAt))
-        {
-            // History can be newer than the summary, or older after deletion.
-            // Its actual message timestamp must travel with its preview text.
-            return preview.ExpiresAt <= DateTimeOffset.UtcNow ? "" : ConversationTime(preview.LastAt);
-        }
-        return ConversationTime(room.LastMessageAt);
+        // Activity survives deletion; plaintext previews still obey visibility.
+        return ConversationTime(ConversationActivityAt(room));
     }
 
     private void ReconcileConversationPreviews(IReadOnlyList<ConversationSummary> rooms)
     {
         EnsurePreviewOwner();
         var current = rooms.ToDictionary(room => room.Id);
+        foreach (var id in _conversationActivity.Keys.Where(id => !current.ContainsKey(id)).ToArray())
+            _conversationActivity.Remove(id);
+        foreach (var room in rooms) ObserveConversationActivity(room);
         foreach (var id in _conversationPreviews.Keys.Concat(_previewRequests.Keys).Distinct().ToArray())
         {
             if (!current.TryGetValue(id, out var room))
@@ -85,6 +82,9 @@ internal sealed partial class MainForm
         var card = _conversationList.Controls.OfType<RoundedPanel>()
             .FirstOrDefault(c => c.Tag is ConversationSummary current && current.Id == room.Id);
         if (card is null) return;
+        // A preview GET may finish after an activity-only list update with the
+        // same visible message date. Never repaint its older activity metadata.
+        room = (ConversationSummary)card.Tag!;
         var label = card.Controls.Find("ConversationLastMessagePreview", true).OfType<Label>().SingleOrDefault();
         var text = ConversationPreviewText(room);
         // Updating one label preserves popup owners, avatar, scroll and focus.
@@ -105,6 +105,7 @@ internal sealed partial class MainForm
             .OfType<ConversationSummary>().FirstOrDefault(c => c.Id == roomId);
         if (room is null) return;
         var now = DateTimeOffset.UtcNow;
+        ObserveConversationActivity(room, messages);
         var last = LatestPreviewMessage(messages, now);
         var text = "";
         var authenticated = last is null;
@@ -118,6 +119,7 @@ internal sealed partial class MainForm
         _conversationPreviews[roomId] = new(last?.CreatedAt, room.LastMessageAt, text, last?.ExpiresAt,
             now.AddSeconds(authenticated ? 60 : 15));
         ApplyConversationPreviewLabel(room);
+        ApplyConversationOrder();
     }
 
     private static StoredMessage? LatestPreviewMessage(IEnumerable<StoredMessage> messages, DateTimeOffset now) =>
@@ -145,13 +147,14 @@ internal sealed partial class MainForm
         _previewRefreshTask = RefreshConversationPreviewsAsync();
     }
 
-    private void InvalidateConversationVisibility(Guid? roomId = null)
+    private void InvalidateConversationVisibility(Guid? roomId = null, bool preserveActivity = true)
     {
         EnsurePreviewOwner();
         var affected = _conversationList.Controls.OfType<RoundedPanel>().Select(c => c.Tag)
             .OfType<ConversationSummary>().Where(r => roomId is null || r.Id == roomId).ToArray();
         foreach (var room in affected)
         {
+            if (!preserveActivity) _conversationActivity.Remove(room.Id);
             _conversationPreviews.Remove(room.Id);
             _previewRequests.Remove(room.Id);
             ApplyConversationPreviewLabel(room);
@@ -232,6 +235,7 @@ internal sealed partial class MainForm
             if (!PreviewRequestCurrent(requested, owner, request)) return;
             if (messages.Any(m => m.ConversationId != requested.Id))
                 throw new InvalidDataException("Önizleme farklı bir sohbete ait.");
+            ObserveConversationActivity(requested, messages);
             var last = LatestPreviewMessage(messages, DateTimeOffset.UtcNow);
             actualLastAt = last?.CreatedAt;
             // Even an unavailable key must not leave an expired clock behind.
@@ -281,6 +285,7 @@ internal sealed partial class MainForm
         _conversationPreviews[requested.Id] = retained is not null ? retained with { RefreshAfter = refreshAfter } :
             new(actualLastAt, requested.LastMessageAt, text, expiry, refreshAfter);
         ApplyConversationPreviewLabel(requested);
+        ApplyConversationOrder();
     }
 
     private bool PreviewRequestCurrent(ConversationSummary requested, Guid owner, object request) =>

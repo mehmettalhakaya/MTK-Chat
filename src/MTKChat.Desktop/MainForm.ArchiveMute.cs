@@ -111,6 +111,14 @@ internal sealed partial class MainForm
 
     private void ApplyConversationPersonalIndicator(Control card, ConversationSummary conversation)
     {
+        var pin = card.Controls.Find("ConversationPinIndicator", false).FirstOrDefault();
+        var pinned = IsPinnedConversation(conversation.Id);
+        if (pin is not null && !Equals(pin.Tag, pinned))
+        {
+            pin.Tag = pinned;
+            pin.Visible = pinned;
+            card.PerformLayout();
+        }
         var muted = IsMutedConversation(conversation.Id);
         var until = ChatPreferences()?.MuteUntil(conversation.Id);
         var badge = card.Controls.Find("ConversationMuteIndicator", false).FirstOrDefault();
@@ -120,7 +128,7 @@ internal sealed partial class MainForm
             badge.AccessibleDescription = !muted ? "Bildirimler açık" : until is null ? "Süresiz sessizde" :
                 "Sessizde: " + until.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
         }
-        card.AccessibleDescription = (IsArchivedConversation(conversation.Id) ? "Arşivlenmiş · " : "") +
+        card.AccessibleDescription = (pinned ? "Sabitlenmiş · " : "") + (IsArchivedConversation(conversation.Id) ? "Arşivlenmiş · " : "") +
             (muted ? "Bildirimleri sessizde · " : "") + $"{Math.Max(0, conversation.UnreadCount)} okunmamış mesaj";
     }
 

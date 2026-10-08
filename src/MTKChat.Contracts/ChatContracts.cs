@@ -48,7 +48,13 @@ public sealed record ConversationSummary(
     int UnreadCount,
     string? PhotoVersion = null,
     string Kind = "group",
-    IReadOnlyDictionary<Guid, string>? GroupRoles = null);
+    IReadOnlyDictionary<Guid, string>? GroupRoles = null,
+    // Activity metadata survives personal/everyone message deletion. Keep it
+    // separate from the currently visible message timestamp used for previews.
+    DateTimeOffset? LastActivityAt = null,
+    // True distinguishes an authoritative empty activity from an older server
+    // that has not implemented this optional metadata yet.
+    bool ActivityMetadataAvailable = false);
 public sealed record GroupPhotoResult(Guid ConversationId, string? PhotoVersion);
 
 public sealed record EncryptedPayload(

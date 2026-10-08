@@ -163,9 +163,11 @@ internal sealed partial class MainForm
             form._conversationList.Controls.OfType<RoundedPanel>()),
             "A hundred logically identical deserialized sidebar polls perform no card reconciliation or JSON serialization");
         summaries[0] = summaries[0] with { UnreadCount = summaries[0].UnreadCount + 1 };
+        var changedCard = cards.Single(card => ((ConversationSummary)card.Tag!).Id == summaries[0].Id);
         form.ReconcileConversationCards(summaries);
-        Require(form._conversationReconcilePasses == reconciliationBefore + 1 && cards[0].IsDisposed &&
-            ((ConversationSummary)form._conversationList.Controls[0].Tag!).UnreadCount == summaries[0].UnreadCount,
+        Require(form._conversationReconcilePasses == reconciliationBefore + 1 && changedCard.IsDisposed &&
+            form._conversationList.Controls.OfType<RoundedPanel>().Select(card => (ConversationSummary)card.Tag!)
+                .Single(room => room.Id == summaries[0].Id).UnreadCount == summaries[0].UnreadCount,
             "A real unread-count change still replaces the affected sidebar card exactly once");
 
         var previousControls = form._messageList.Controls.Cast<Control>().ToArray();

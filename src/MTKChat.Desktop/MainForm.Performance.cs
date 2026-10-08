@@ -54,6 +54,7 @@ internal sealed partial class MainForm
     private static bool ConversationVisualEquals(ConversationSummary left, ConversationSummary right) =>
         left.Id == right.Id && left.Title == right.Title && left.LastMessagePreview == right.LastMessagePreview &&
         left.LastMessageAt == right.LastMessageAt && left.UnreadCount == right.UnreadCount &&
+        left.LastActivityAt == right.LastActivityAt && left.ActivityMetadataAvailable == right.ActivityMetadataAvailable &&
         left.PhotoVersion == right.PhotoVersion && left.Kind == right.Kind &&
         left.Participants.SequenceEqual(right.Participants) &&
         (left.GroupRoles?.Count ?? 0) == (right.GroupRoles?.Count ?? 0) &&
@@ -67,6 +68,7 @@ internal sealed partial class MainForm
 
     private bool ReconcileConversationCards(IReadOnlyList<ConversationSummary> conversations)
     {
+        conversations = OrderedConversations(conversations);
         var prior = _conversationList.Controls.OfType<RoundedPanel>().ToArray();
         if (prior.Length == conversations.Count && prior.Select((card, index) =>
             card.Tag is ConversationSummary summary && ConversationVisualEquals(summary, conversations[index])).All(same => same))
@@ -82,6 +84,14 @@ internal sealed partial class MainForm
             for (var index = 0; index < conversations.Count; index++)
             {
                 var conversation = conversations[index];
+                if (old.TryGetValue(conversation.Id, out var existing) && existing.Tag is ConversationSummary previous &&
+                    ConversationVisualEquals(previous with { LastActivityAt = conversation.LastActivityAt,
+                        ActivityMetadataAvailable = conversation.ActivityMetadataAvailable }, conversation))
+                {
+                    // A metadata-only movement does not invalidate an avatar/menu.
+                    existing.Tag = conversation;
+                    ApplyConversationPreviewLabel(conversation);
+                }
                 if (!old.TryGetValue(conversation.Id, out var card) ||
                     !ConversationVisualEquals((ConversationSummary)card.Tag!, conversation))
                 {

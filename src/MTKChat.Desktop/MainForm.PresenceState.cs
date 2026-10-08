@@ -73,9 +73,19 @@ internal sealed partial class MainForm
         // Snapshot-only menus intentionally omit real block/role API handlers. Their
         // visible/Closed/disposal lifecycle is the same as the production row popup.
         var menu = Theme.ContextMenu();
+        // This probe tests polling/explicit Close, not outside-click dismissal.
+        // Other desktop focus changes must not silently close its native popup.
+        menu.AutoClose = false;
         menu.Items.Add("Kullanıcı seçenekleri");
         row.ContextMenuStrip = menu;
         row.Disposed += (_, _) => menu.Dispose();
+    }
+
+    internal static IReadOnlyList<string> VerifyPresenceContinuityQa()
+    {
+        using var context = new HistoryQaUiContext();
+        using var fixture = new HistoryQaFixture();
+        return fixture.Form.VerifyPresenceContinuity();
     }
 
     internal IReadOnlyList<string> VerifyPresenceContinuity()

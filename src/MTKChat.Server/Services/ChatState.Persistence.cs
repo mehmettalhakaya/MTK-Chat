@@ -36,7 +36,8 @@ public sealed partial class ChatState
         GroupInviteData[]? GroupInvites = null,
         ProfileNameData[]? ProfileNames = null,
         StatusData[]? Statuses = null,
-        PinnedMessageView[]? Pins = null);
+        PinnedMessageView[]? Pins = null,
+        ConversationActivityData[]? ConversationActivities = null);
 
     private void PersistUnsafe()
     {
@@ -67,7 +68,8 @@ public sealed partial class ChatState
             _groupInvites.Values.ToArray(),
             _profileNames.Values.ToArray(),
             _statuses.Values.ToArray(),
-            _pins.Values.ToArray());
+            _pins.Values.ToArray(),
+            _conversationActivity.Values.ToArray());
         return JsonSerializer.Serialize(snapshot);
     }
 
@@ -136,6 +138,7 @@ public sealed partial class ChatState
         foreach (var item in snapshot.ChatBannedUsers) _chatBannedUsers.Add((item.ConversationId, item.UserId));
         _blockedUsers.Clear();
         foreach (var item in snapshot.Blocks) _blockedUsers[item.OwnerId] = item.TargetIds.ToHashSet();
+        RestoreConversationActivityUnsafe(snapshot.ConversationActivities);
         // Statuses restore only after their sender device and block metadata. Old
         // snapshots omit this optional field and retain all existing chat data.
         RestoreStatusesUnsafe(snapshot.Statuses);
@@ -215,6 +218,8 @@ public sealed partial class ChatState
                 _hiddenMessages.RemoveWhere(item => item.UserId == id);
                 _hiddenConversations.RemoveWhere(item => item.UserId == id);
                 _leftGroups.RemoveWhere(item => item.UserId == id);
+                foreach (var key in _conversationActivity.Keys.Where(item => item.UserId == id).ToArray())
+                    _conversationActivity.Remove(key);
                 _activeConversation.Remove(id);
                 foreach (var key in _chatMutedUsers.Keys.Where(item => item.UserId == id).ToArray()) _chatMutedUsers.Remove(key);
                 _chatBannedUsers.RemoveWhere(item => item.UserId == id);
@@ -227,6 +232,8 @@ public sealed partial class ChatState
                 if (conversation.MemberIds.RemoveWhere(id => !_users.ContainsKey(id)) > 0) changed = true;
             foreach (var key in _groupRoles.Keys.Where(item => !_conversations.TryGetValue(item.ConversationId, out var room) ||
                          !room.MemberIds.Contains(item.UserId)).ToArray()) { _groupRoles.Remove(key); changed = true; }
+            foreach (var key in _conversationActivity.Keys.Where(item => !_conversations.TryGetValue(item.ConversationId, out var room) ||
+                         !room.MemberIds.Contains(item.UserId)).ToArray()) { _conversationActivity.Remove(key); changed = true; }
             foreach (var id in _devicesByUser.Keys.Where(id => !_users.ContainsKey(id)).ToArray())
             {
                 _devicesByUser.Remove(id);

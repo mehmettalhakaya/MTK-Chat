@@ -12,7 +12,7 @@
   ![DevExpress](https://img.shields.io/badge/DevExpress-26.1.5-FF7200)
   ![MySQL](https://img.shields.io/badge/MySQL-Veritabanı-4479A1?logo=mysql&logoColor=white)
   ![AI](https://img.shields.io/badge/AI-Gemini_%2B_Groq-8B5CF6)
-  ![Tests](https://img.shields.io/badge/Test-387%2F387-22C55E)
+  ![Tests](https://img.shields.io/badge/Test-395%2F395-22C55E)
 
   **[⬇️ Windows sürümünü indir](https://github.com/mehmettalhakaya/MTK-Chat/releases/latest)** · **[🌐 mtkaya.me](https://mtkaya.me)** · **[🐛 Hata bildir](https://github.com/mehmettalhakaya/MTK-Chat/issues)**
 </div>
@@ -38,6 +38,8 @@ Masaüstü istemcisi, ASP.NET Core API ve MySQL veri katmanı ayrı projelerdir.
 - Birebir özel sohbetler ve yalnız üyelerin erişebildiği gruplar
 - Tek/çift tik, okunma durumu ve alıcı bazında mesaj bilgisi paneli
 - Okunmamış, favori, kişi, grup ve arşiv filtreleri
+- Son etkinliğe göre sıralama; mesaj silinse bile son hareket saatinin korunması
+- Kişi ve grup sohbetlerini hesaba/cihaza özel sabitleyerek listenin üstünde tutma
 - Mesaj yıldızlama, süreli sabitleme ve asıl mesaja dönüş
 - Kullanıcıya özel silme; kendi mesajını ilk 15 dakikada herkesten silme
 - Mesaj üzerine gelince beliren seçenekler; ikonlu, temaya uygun işlem menüsü
@@ -178,7 +180,7 @@ Derlenmiş masaüstü klasöründen sentetik arayüz regresyonu:
 .\MTKChat.Desktop.exe --snapshot
 ```
 
-**8 Ekim 2026 doğrulaması:** Release derlemesi 0 hata / 0 uyarı; **387/387 birim ve yerel HTTP testi**, **15 web VM senaryosu / 192 assertion** başarılı. Yayımlanan uygulamayla tam native arayüz regresyonu da geçti. Testler gerçek kullanıcıya mesaj göndermez; bu sonuç iki fiziksel bilgisayar, gerçek mikrofon kalitesi, canlı hesap veya tüm DPI koşullarının sınandığı anlamına gelmez.
+**8 Ekim 2026 doğrulaması:** Release derlemesi 0 hata / 0 uyarı; **395/395 birim ve yerel HTTP testi**, **15 web VM senaryosu / 192 assertion** başarılı. Yayımlanan uygulamayla tam native arayüz regresyonu da geçti. Testler gerçek kullanıcıya mesaj göndermez; bu sonuç iki fiziksel bilgisayar, gerçek mikrofon kalitesi, canlı hesap veya tüm DPI koşullarının sınandığı anlamına gelmez.
 
 ---
 

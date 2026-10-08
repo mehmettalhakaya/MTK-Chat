@@ -16,6 +16,7 @@ public sealed partial class ChatState
         {
             if (!_conversations.TryGetValue(conversationId, out var room) || !room.MemberIds.Contains(userId)) return false;
             HideConversationMessagesUnsafe(userId, room);
+            _conversationActivity.Remove((conversationId, userId));
             _hiddenConversations.Add((conversationId, userId));
             if (_activeConversation.GetValueOrDefault(userId).ConversationId == conversationId) _activeConversation.Remove(userId);
             PersistUnsafe();
@@ -48,6 +49,7 @@ public sealed partial class ChatState
                 !remainingHumans.Any(id => GetGroupRole(conversationId, id) == "admin"))
                 return LeaveGroupResult.AdminTransferRequired;
             HideConversationMessagesUnsafe(userId, room);
+            _conversationActivity.Remove((conversationId, userId));
             room.MemberIds.Remove(userId);
             _groupRoles.Remove((conversationId, userId));
             _leftGroups.Add((conversationId, userId));

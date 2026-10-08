@@ -393,6 +393,7 @@ public sealed partial class ChatState
     {
         lock (_gate)
         {
+            var now = _time.GetUtcNow();
             return _conversations.Values
                 .Where(conversation => conversation.MemberIds.Contains(userId) && !_hiddenConversations.Contains((conversation.Id, userId)))
                 .Select(conversation =>
@@ -400,9 +401,10 @@ public sealed partial class ChatState
                     var last = conversation.MessageIds
                         .Select(id => _messages.GetValueOrDefault(id))
                         .Where(message => message is not null && !message.DeletedForEveryone &&
-                                          (message.ExpiresAt is null || message.ExpiresAt > DateTimeOffset.UtcNow) &&
+                                          (message.ExpiresAt is null || message.ExpiresAt > now) &&
                                           !_hiddenMessages.Contains((userId, message.Id)))
                         .Where(message => !IsBlockedUnsafe(userId, message!.SenderId))
+                        .Where(message => message!.SenderId == userId || message.Payloads.Any(payload => payload.RecipientId == userId))
                         .OrderByDescending(message => message!.CreatedAt)
                         .FirstOrDefault();
                     return new ConversationSummary(
@@ -416,14 +418,16 @@ public sealed partial class ChatState
                             !_privateReads.Contains((id, userId))),
                         _groupPhotos.GetValueOrDefault(conversation.Id)?.Version,
                         conversation.Kind,
-                        conversation.Kind == "direct" ? null : conversation.MemberIds.ToDictionary(id => id, id => GetGroupRole(conversation.Id, id))) with
+                        conversation.Kind == "direct" ? null : conversation.MemberIds.ToDictionary(id => id, id => GetGroupRole(conversation.Id, id)),
+                        ConversationActivityAtUnsafe(conversation.Id, userId, last?.CreatedAt, now), true) with
                     {
                         Title = conversation.Kind == "direct"
                             ? conversation.MemberIds.Where(id => id != userId).Select(id => _users[id].DisplayName).FirstOrDefault() ?? "Özel sohbet"
                             : conversation.Title
                     };
                 })
-                .OrderByDescending(item => item.LastMessageAt)
+                .OrderByDescending(item => item.LastActivityAt ?? item.LastMessageAt)
+                .ThenBy(item => item.Id)
                 .ToArray();
         }
     }
@@ -499,6 +503,7 @@ public sealed partial class ChatState
             _messages.Add(created.Id, created);
             _clientMessageIds[(senderId, request.ClientMessageId)] = created.Id;
             conversation.MessageIds.Add(created.Id);
+            var activityChanges = RecordConversationActivityUnsafe(created);
             // Only a genuinely new incoming envelope restores a personally removed chat.
             // Retries and a sender's own sends cannot restore another user's cleared history.
             var restoredChats = request.Payloads.Where(payload => payload.RecipientId != senderId &&
@@ -512,6 +517,9 @@ public sealed partial class ChatState
                 _messages.Remove(created.Id);
                 _clientMessageIds.Remove((senderId, request.ClientMessageId));
                 conversation.MessageIds.Remove(created.Id);
+                foreach (var change in activityChanges)
+                    if (change.Previous is null) _conversationActivity.Remove(change.Key);
+                    else _conversationActivity[change.Key] = change.Previous;
                 foreach (var key in restoredChats) _hiddenConversations.Add(key);
                 throw;
             }

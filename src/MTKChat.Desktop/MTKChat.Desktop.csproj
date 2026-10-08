@@ -4,8 +4,8 @@
     <TargetFramework>net9.0-windows10.0.17763.0</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>Assets\mtk-chat.ico</ApplicationIcon>
-    <FileVersion>2026.10.8.2</FileVersion>
-    <InformationalVersion>2026.10.08-message-actions-registration</InformationalVersion>
+    <FileVersion>2026.10.8.3</FileVersion>
+    <InformationalVersion>2026.10.08-conversation-order-pins</InformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="Assets\mtk-chat.ico" CopyToOutputDirectory="PreserveNewest" />

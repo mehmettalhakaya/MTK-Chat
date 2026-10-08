@@ -14,6 +14,7 @@ internal sealed class LocalChatPreferences
     private HashSet<StarReference> _stars = [];
     private HashSet<Guid> _archived = [];
     private Dictionary<Guid, DateTimeOffset?> _mutes = [];
+    private HashSet<Guid> _pins = [];
     internal Guid UserId { get; }
     internal bool IsPersistent => _path is not null;
 
@@ -40,13 +41,17 @@ internal sealed class LocalChatPreferences
             var data = JsonSerializer.Deserialize<PreferenceData>(bytes)
                 ?? throw new InvalidDataException("Personal preferences are empty.");
             // Keep the existing account-bound entropy so version-1 favorites and
-            // stars migrate without resetting them. Version 2 adds personal archive
-            // and mute metadata, never server membership or message bodies.
-            if (data.Version is not (1 or 2) || data.UserId != userId || data.Favorites is null || data.Stars is null ||
-                data.Version == 2 && (data.Archived is null || data.Mutes is null) ||
-                data.Favorites.Length + data.Stars.Length + (data.Archived?.Length ?? 0) + (data.Mutes?.Length ?? 0) > MaximumEntries ||
+            // stars migrate without resetting them. Versions 2/3 add personal
+            // archive, mute and pin metadata, never membership or message bodies.
+            // Pins is optional so an older account has no invented pinned rooms.
+            if (data.Version is not (1 or 2 or 3) || data.UserId != userId || data.Favorites is null || data.Stars is null ||
+                data.Version >= 2 && (data.Archived is null || data.Mutes is null) ||
+                (long)data.Favorites.Length + data.Stars.Length + (data.Archived?.Length ?? 0) +
+                    (data.Mutes?.Length ?? 0) + (data.Pins?.Length ?? 0) > MaximumEntries ||
                 data.Favorites.Any(id => id == Guid.Empty) || data.Stars.Any(s => s is null || s.RoomId == Guid.Empty || s.MessageId == Guid.Empty) ||
                 data.Archived?.Any(id => id == Guid.Empty) == true ||
+                data.Pins?.Any(id => id == Guid.Empty) == true ||
+                data.Pins is { } pins && pins.Distinct().Count() != pins.Length ||
                 data.Mutes?.Any(mute => mute is null || mute.RoomId == Guid.Empty || mute.Until == DateTimeOffset.MinValue) == true ||
                 data.Mutes is { } mutes && mutes.Select(mute => mute.RoomId).Distinct().Count() != mutes.Length)
                 throw new InvalidDataException("Personal preferences are invalid or belong to another account.");
@@ -54,6 +59,7 @@ internal sealed class LocalChatPreferences
             store._stars = data.Stars.ToHashSet();
             store._archived = data.Archived?.ToHashSet() ?? [];
             store._mutes = data.Mutes?.ToDictionary(mute => mute.RoomId, mute => mute.Until) ?? [];
+            store._pins = data.Pins?.ToHashSet() ?? [];
             return store;
         }
         finally { CryptographicOperations.ZeroMemory(bytes); }
@@ -63,9 +69,20 @@ internal sealed class LocalChatPreferences
     internal bool IsStarred(Guid roomId, Guid messageId) => _stars.Contains(new(roomId, messageId));
     internal IReadOnlySet<Guid> StarredIds(Guid roomId) => _stars.Where(s => s.RoomId == roomId).Select(s => s.MessageId).ToHashSet();
     internal bool IsArchived(Guid roomId) => _archived.Contains(roomId);
+    internal bool IsPinned(Guid roomId) => _pins.Contains(roomId);
     internal bool IsMuted(Guid roomId, DateTimeOffset? now = null) =>
         _mutes.TryGetValue(roomId, out var until) && (until is null || (now ?? DateTimeOffset.UtcNow) < until);
     internal DateTimeOffset? MuteUntil(Guid roomId) => _mutes.GetValueOrDefault(roomId);
+
+    internal void SetPinned(Guid roomId, bool pinned)
+    {
+        Validate(roomId);
+        if (IsPinned(roomId) == pinned) return;
+        var candidate = new HashSet<Guid>(_pins);
+        if (pinned) candidate.Add(roomId); else candidate.Remove(roomId);
+        Save(_favorites, _stars, _archived, _mutes, candidate);
+        _pins = candidate;
+    }
 
     internal void SetArchived(Guid roomId, bool archived)
     {
@@ -73,7 +90,7 @@ internal sealed class LocalChatPreferences
         if (IsArchived(roomId) == archived) return;
         var candidate = new HashSet<Guid>(_archived);
         if (archived) candidate.Add(roomId); else candidate.Remove(roomId);
-        Save(_favorites, _stars, candidate, _mutes);
+        Save(_favorites, _stars, candidate, _mutes, _pins);
         _archived = candidate;
     }
 
@@ -84,7 +101,7 @@ internal sealed class LocalChatPreferences
             throw new ArgumentOutOfRangeException(nameof(until), "Susturma süresi gelecekte olmalıdır.");
         if (_mutes.TryGetValue(roomId, out var prior) && prior == until) return;
         var candidate = new Dictionary<Guid, DateTimeOffset?>(_mutes) { [roomId] = until };
-        Save(_favorites, _stars, _archived, candidate);
+        Save(_favorites, _stars, _archived, candidate, _pins);
         _mutes = candidate;
     }
 
@@ -94,7 +111,7 @@ internal sealed class LocalChatPreferences
         if (!_mutes.ContainsKey(roomId)) return;
         var candidate = new Dictionary<Guid, DateTimeOffset?>(_mutes);
         candidate.Remove(roomId);
-        Save(_favorites, _stars, _archived, candidate);
+        Save(_favorites, _stars, _archived, candidate, _pins);
         _mutes = candidate;
     }
 
@@ -104,7 +121,7 @@ internal sealed class LocalChatPreferences
         if (IsFavorite(roomId) == favorite) return;
         var candidate = new HashSet<Guid>(_favorites);
         if (favorite) candidate.Add(roomId); else candidate.Remove(roomId);
-        Save(candidate, _stars, _archived, _mutes);
+        Save(candidate, _stars, _archived, _mutes, _pins);
         _favorites = candidate;
     }
 
@@ -114,19 +131,19 @@ internal sealed class LocalChatPreferences
         if (IsStarred(roomId, messageId) == starred) return;
         var candidate = new HashSet<StarReference>(_stars);
         if (starred) candidate.Add(new(roomId, messageId)); else candidate.Remove(new(roomId, messageId));
-        Save(_favorites, candidate, _archived, _mutes);
+        Save(_favorites, candidate, _archived, _mutes, _pins);
         _stars = candidate;
     }
 
     private void Save(HashSet<Guid> favorites, HashSet<StarReference> stars,
-        HashSet<Guid> archived, Dictionary<Guid, DateTimeOffset?> mutes)
+        HashSet<Guid> archived, Dictionary<Guid, DateTimeOffset?> mutes, HashSet<Guid> pins)
     {
-        if (favorites.Count + stars.Count + archived.Count + mutes.Count > MaximumEntries)
+        if ((long)favorites.Count + stars.Count + archived.Count + mutes.Count + pins.Count > MaximumEntries)
             throw new InvalidOperationException("Kişisel tercihler için depolama sınırına ulaşıldı.");
         if (_path is null) return;
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(new PreferenceData(2, UserId, favorites.ToArray(), stars.ToArray(),
-            archived.ToArray(), mutes.Select(pair => new MuteReference(pair.Key, pair.Value)).ToArray()));
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(new PreferenceData(3, UserId, favorites.ToArray(), stars.ToArray(),
+            archived.ToArray(), mutes.Select(pair => new MuteReference(pair.Key, pair.Value)).ToArray(), pins.ToArray()));
         var temporaryPath = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
@@ -151,7 +168,7 @@ internal sealed class LocalChatPreferences
     private byte[] Entropy() => Encoding.UTF8.GetBytes("MTKChat.PersonalPreferences.v1." + UserId.ToString("N"));
     private static void Validate(Guid id) { if (id == Guid.Empty) throw new ArgumentException("An empty identifier is not valid."); }
     private sealed record PreferenceData(int Version, Guid UserId, Guid[] Favorites, StarReference[] Stars,
-        Guid[]? Archived = null, MuteReference[]? Mutes = null);
+        Guid[]? Archived = null, MuteReference[]? Mutes = null, Guid[]? Pins = null);
     private sealed record StarReference(Guid RoomId, Guid MessageId);
     private sealed record MuteReference(Guid RoomId, DateTimeOffset? Until);
 }

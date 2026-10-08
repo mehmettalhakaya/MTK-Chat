@@ -25,7 +25,7 @@ internal sealed partial class MainForm
         }
         if (_sidebarBlocked.Parent is null)
         {
-            _sidebarBlocked.UserUnblocked += _ => InvalidateConversationVisibility();
+        _sidebarBlocked.UserUnblocked += _ => InvalidateConversationVisibility(preserveActivity: false);
             _sidebarDrawerBody.Controls.Add(_sidebarBlocked);
         }
     }

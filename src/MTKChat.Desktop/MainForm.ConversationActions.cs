@@ -13,6 +13,16 @@ internal sealed partial class MainForm
         var menu = Theme.ContextMenu();
         ConversationSummary Current() => (ConversationSummary)card.Tag!;
         var group = Current().Kind != "direct";
+        var pin = menu.Items.AddAction("Sohbeti sabitle", ModernMenuIcon.Pin, (_, _) =>
+        {
+            try { SetPinnedConversation(Current().Id, !IsPinnedConversation(Current().Id)); }
+            catch (Exception ex) { ShowError(ex.Message); }
+        });
+        menu.Opening += (_, _) =>
+        {
+            pin.Text = IsPinnedConversation(Current().Id) ? "Sabitlemeyi kaldır" : "Sohbeti sabitle";
+            pin.AccessibleDescription = "Yalnızca bu hesap ve bilgisayarda sohbeti listenin üstünde tutar.";
+        };
         var favorite = menu.Items.AddAction("Favorilere ekle", ModernMenuIcon.Favorite, (_, _) =>
         {
             try { SetFavoriteConversation(Current().Id, !IsFavoriteConversation(Current().Id)); }
@@ -94,6 +104,7 @@ internal sealed partial class MainForm
             else await _api.LeaveConversationAsync(conversation.Id);
             if (IsDisposed) return;
             if (action == "clear") InvalidateConversationVisibility(conversation.Id);
+            else _conversationActivity.Remove(conversation.Id);
             if (action != "clear" && _selectedConversation?.Id == conversation.Id) ResetConversationSelection();
             _renderFingerprint = _presenceFingerprint = null;
             // Wait behind any older polling response, then fetch fresh state. A silent

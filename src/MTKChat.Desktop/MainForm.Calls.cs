@@ -106,7 +106,7 @@ internal sealed partial class MainForm
                 var blocked = (await _api.GetBlockedUsersAsync()).Contains(person.User.Id);
                 await _api.SetBlockedAsync(person.User.Id, !blocked);
                 if (IsDisposed) return;
-                InvalidateConversationVisibility();
+                    InvalidateConversationVisibility(preserveActivity: false);
                 await RefreshMessagesAsync(silent: true);
                 await LoadConversationsAsync();
             }

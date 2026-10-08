@@ -124,7 +124,7 @@ internal sealed partial class MainForm : ModernForm
             ReconcileConversationPreviews(conversations);
             ReconcileConversationCards(conversations);
             RefreshPersonalConversationIndicators();
-            var selected = conversations.FirstOrDefault(c => c.Id == selectedId) ?? conversations.FirstOrDefault(c => !IsArchivedConversation(c.Id));
+            var selected = conversations.FirstOrDefault(c => c.Id == selectedId) ?? OrderedConversations(conversations).FirstOrDefault(c => !IsArchivedConversation(c.Id));
             if (selected is not null)
             {
                 var card = _conversationList.Controls.OfType<RoundedPanel>().Single(c => ((ConversationSummary)c.Tag!).Id == selected.Id);
@@ -233,16 +233,23 @@ internal sealed partial class MainForm : ModernForm
             UseMnemonic = false
         };
         unread.Controls.Add(count);
+        var pin = new ConversationPinBadge
+        {
+            Name = "ConversationPinIndicator", Visible = IsPinnedConversation(conversation.Id),
+            Tag = IsPinnedConversation(conversation.Id), AccessibleName = "Sabitlenmiş sohbet", Cursor = Cursors.Hand
+        };
         card.Controls.Add(preview);
         card.Controls.Add(name);
         card.Controls.Add(time);
         card.Controls.Add(avatar);
         card.Controls.Add(unread);
+        card.Controls.Add(pin);
         void LayoutCard()
         {
             avatar.SetBounds(Scale(8), Math.Max(0, (card.Height - Scale(48)) / 2), Scale(48), Scale(48));
             var right = Math.Max(Scale(70), card.Width - Scale(10));
-            var badgeSize = Scale(conversation.UnreadCount > 99 ? 26 : 22);
+            var badgeSize = Math.Max(Scale(conversation.UnreadCount > 99 ? 26 : 22),
+                TextRenderer.MeasureText(count.Text, count.Font).Width + Scale(2));
             var titleHeight = Math.Max(Math.Max(Scale(24), name.Font.Height + Scale(2)),
                 conversation.UnreadCount > 0 ? badgeSize : 0);
             var previewHeight = Math.Max(Scale(22), Math.Max(preview.Font.Height, time.Font.Height) + Scale(2));
@@ -253,10 +260,13 @@ internal sealed partial class MainForm : ModernForm
             // Reserve separate slots so a long title or preview cannot cover it.
             time.SetBounds(right - clockWidth, top + titleHeight, clockWidth, previewHeight);
             unread.SetBounds(right - badgeSize, top + (titleHeight - badgeSize) / 2, badgeSize, badgeSize);
+            var unreadSlot = conversation.UnreadCount > 0 ? badgeSize + Scale(8) : 0;
+            var pinSize = Scale(20);
+            pin.SetBounds(right - unreadSlot - pinSize, top + (titleHeight - pinSize) / 2, pinSize, pinSize);
             // Direct sibling labels avoid a transparent rectangular HWND above
             // the right slots (and reverse-order DrawToBitmap occlusion).
             var textWidth = Math.Max(1, right - Scale(68));
-            name.SetBounds(Scale(68), top, Math.Max(1, textWidth - (conversation.UnreadCount > 0 ? badgeSize + Scale(8) : 0)), titleHeight);
+            name.SetBounds(Scale(68), top, Math.Max(1, textWidth - unreadSlot - (IsPinnedConversation(conversation.Id) ? pinSize + Scale(8) : 0)), titleHeight);
             preview.SetBounds(Scale(68), top + titleHeight, Math.Max(1, textWidth - (time.Text.Length > 0 ? clockWidth + Scale(8) : 0)), previewHeight);
         }
         card.Layout += (_, _) => LayoutCard();

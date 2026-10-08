@@ -96,7 +96,7 @@ internal sealed partial class MainForm
                 "A lagging summary cannot give the newer preview an older clock (" + kind + ")");
             form._conversationPreviews[room.Id] = new(null, older, "", null, DateTimeOffset.UtcNow.AddMinutes(1));
             form.ApplyConversationPreviewLabel(room);
-            Require(clock.Text == "" && preview.Text == "", "A verified empty history blanks both preview and clock (" + kind + ")");
+            Require(clock.Text == ConversationTime(newer) && preview.Text == "", "An emptied history blanks plaintext but retains the observed activity clock (" + kind + ")");
             form._conversationPreviews.Remove(room.Id);
         }
 
