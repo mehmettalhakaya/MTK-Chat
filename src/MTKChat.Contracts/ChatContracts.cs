@@ -54,7 +54,12 @@ public sealed record ConversationSummary(
     DateTimeOffset? LastActivityAt = null,
     // True distinguishes an authoritative empty activity from an older server
     // that has not implemented this optional metadata yet.
-    bool ActivityMetadataAvailable = false);
+    bool ActivityMetadataAvailable = false,
+    // A deletion marker is metadata, not a decrypted preview. Keep its timestamp
+    // separate so hiding a message personally never revives its old plaintext.
+    DateTimeOffset? LastDeletedMessageAt = null,
+    // Missing on older servers; true/null means no visible deletion marker.
+    bool DeletedMessageMetadataAvailable = false);
 public sealed record GroupPhotoResult(Guid ConversationId, string? PhotoVersion);
 
 public sealed record EncryptedPayload(

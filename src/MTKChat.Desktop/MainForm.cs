@@ -114,8 +114,10 @@ internal sealed partial class MainForm : ModernForm
         _loadingConversations = true;
         try
         {
+            var visibilityVersion = _previewVisibilityVersion;
+            var owner = _session.User.Id;
             var conversations = await _api.GetConversationsAsync();
-            if (IsDisposed) return;
+            if (IsDisposed || visibilityVersion != _previewVisibilityVersion || _session?.User.Id != owner) return;
             // Polling must not dispose a popup's owner while WinForms is processing
             // its native menu loop. The next poll applies the latest complete list.
             if (ConversationPopupOpen()) return;
@@ -385,13 +387,14 @@ internal sealed partial class MainForm : ModernForm
         if (_selectedConversation is null || _session is null) return;
         _refreshing = true;
         var conversationId = _selectedConversation.Id;
+        var requestedPreviewMetadata = _selectedConversation;
         var version = _conversationVersion;
         using var load = new CancellationTokenSource(_historyLoadTimeout);
         _historyLoadCts = load;
         try
         {
             var messages = await _api.GetMessagesAsync(conversationId, load.Token);
-            if (version != _conversationVersion || IsDisposed) return;
+            if (version != _conversationVersion || IsDisposed || !HistoryPreviewMetadataCurrent(requestedPreviewMetadata)) return;
             load.Token.ThrowIfCancellationRequested();
             if (messages.Any(message => message.ConversationId != conversationId))
                 throw new InvalidDataException("Sunucu farklı bir sohbete ait geçmiş döndürdü.");
@@ -507,7 +510,7 @@ internal sealed partial class MainForm : ModernForm
                 foreach (var control in created) control.Dispose();
                 throw;
             }
-            if (version != _conversationVersion || IsDisposed)
+            if (version != _conversationVersion || IsDisposed || !HistoryPreviewMetadataCurrent(requestedPreviewMetadata))
             {
                 foreach (var control in created) control.Dispose();
                 return;
@@ -568,7 +571,7 @@ internal sealed partial class MainForm : ModernForm
         {
             // Canceled/late work for a prior selection must never replace the new
             // room's rows, error state or reconnect deadline.
-            if (version != _conversationVersion || IsDisposed) return;
+            if (version != _conversationVersion || IsDisposed || !HistoryPreviewMetadataCurrent(requestedPreviewMetadata)) return;
             if (exception is OperationCanceledException && load.IsCancellationRequested)
                 exception = new ChatTransportException("message_history", true, exception);
             RecordNetworkFailure(exception);

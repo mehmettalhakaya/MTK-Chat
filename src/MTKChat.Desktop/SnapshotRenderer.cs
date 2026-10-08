@@ -31,6 +31,7 @@ internal static class SnapshotRenderer
         foreach (var check in AvatarHoverPaintQA.Verify(outputDirectory)) Console.WriteLine("Avatar hover QA: " + check);
         foreach (var check in UserPresentationQA.Verify()) Console.WriteLine("Presence presentation QA: " + check);
         foreach (var check in MainForm.VerifyConversationPreviews(outputDirectory)) Console.WriteLine("Conversation preview QA: " + check);
+        foreach (var check in MainForm.VerifyDeletedConversationPreviews(outputDirectory)) Console.WriteLine("Deleted conversation preview QA: " + check);
         foreach (var check in ConversationPickerQA.Verify(outputDirectory)) Console.WriteLine("Conversation picker QA: " + check);
         foreach (var check in MainForm.VerifyGroupTitles(outputDirectory)) Console.WriteLine("Group title QA: " + check);
         foreach (var check in MainForm.VerifyRailAccountFeatures()) Console.WriteLine("Rail account QA: " + check);

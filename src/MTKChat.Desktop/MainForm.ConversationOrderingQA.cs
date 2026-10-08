@@ -213,7 +213,11 @@ internal sealed partial class MainForm
             var room = fixture.InitialRoom;
             var older = fixture.Message(room, fixture.FirstSender, "Silinmeyen daha eski mesaj.");
             var latest = fixture.Message(room, fixture.SecondSender, "Silindikten sonra önizlemeye geri dönmemeli.");
-            room = room with { LastMessageAt = latest.CreatedAt, LastActivityAt = latest.CreatedAt, ActivityMetadataAvailable = true };
+            room = room with
+            {
+                LastMessageAt = latest.CreatedAt, LastActivityAt = latest.CreatedAt, ActivityMetadataAvailable = true,
+                LastDeletedMessageAt = null, DeletedMessageMetadataAvailable = true
+            };
             Apply(fixture, room);
             form._selectedConversation = room; form._selectedConversationCard = fixture.Card(room);
             fixture.Handler.Messages[room.Id] = [older, latest];
@@ -221,25 +225,25 @@ internal sealed partial class MainForm
             Require(Preview(fixture.Card(room)) == "Silindikten sonra önizlemeye geri dönmemeli.",
                 "A genuine authenticated latest message initially supplies the preview text");
             fixture.Handler.Messages[room.Id] = [older, latest with { DeletedForEveryone = true }];
-            room = room with { LastMessageAt = older.CreatedAt };
+            room = room with { LastMessageAt = older.CreatedAt, LastDeletedMessageAt = latest.CreatedAt };
             Apply(fixture, room); form._selectedConversation = room;
             HistoryQaPump(form.RefreshMessagesAsync(true));
-            Require(Preview(fixture.Card(room)) == "Silinmeyen daha eski mesaj." &&
+            Require(Preview(fixture.Card(room)) == "Bu mesaj silindi" &&
                 Clock(fixture.Card(room)) == ConversationTime(latest.CreatedAt) && form.ConversationActivityAt(room) == latest.CreatedAt,
-                "A deletion tombstone keeps the newest activity clock while only the older authenticated text remains visible");
+                "A latest deletion tombstone shows the fixed sidebar placeholder and keeps the newest activity clock instead of revealing older text");
             fixture.Handler.Messages[room.Id] = [latest with { DeletedForEveryone = true }];
             room = room with { LastMessageAt = null };
             Apply(fixture, room); form._selectedConversation = room;
             HistoryQaPump(form.RefreshMessagesAsync(true));
-            Require(Preview(fixture.Card(room)) == "" && Clock(fixture.Card(room)) == ConversationTime(latest.CreatedAt),
-                "Deleting the only message leaves a blank content preview but preserves its server-supplied activity time");
+            Require(Preview(fixture.Card(room)) == "Bu mesaj silindi" && Clock(fixture.Card(room)) == ConversationTime(latest.CreatedAt),
+                "Deleting the only message leaves the fixed sidebar placeholder and its server-supplied activity time");
             // Expiry/access revocation from a new server is authoritative. It is
             // not a legacy metadata omission and cannot keep a stale high-water.
-            room = room with { LastActivityAt = null, LastMessageAt = null };
+            room = room with { LastActivityAt = null, LastMessageAt = null, LastDeletedMessageAt = null };
             Apply(fixture, room);
             form.UpdateConversationPreviewFromHistory(room.Id, [latest]);
-            Require(form.ConversationActivityAt(room) is null && Clock(fixture.Card(room)) == "",
-                "An authoritative null activity clears the clock and cannot be resurrected by cached/late visible history");
+            Require(form.ConversationActivityAt(room) is null && Clock(fixture.Card(room)) == "" && Preview(fixture.Card(room)) == "",
+                "Authoritative null activity and deletion metadata clear the clock and placeholder despite cached/late visible history");
             room = room with { LastActivityAt = older.CreatedAt, LastMessageAt = older.CreatedAt };
             Apply(fixture, room);
             Require(form.ConversationActivityAt(room) == older.CreatedAt,
@@ -249,7 +253,11 @@ internal sealed partial class MainForm
         using (var fixture = new HistoryQaFixture())
         {
             var form = fixture.Form;
-            var room = fixture.InitialRoom with { LastMessageAt = null, LastActivityAt = null, ActivityMetadataAvailable = false };
+            var room = fixture.InitialRoom with
+            {
+                LastMessageAt = null, LastActivityAt = null, ActivityMetadataAvailable = false,
+                LastDeletedMessageAt = null, DeletedMessageMetadataAvailable = false
+            };
             var latest = fixture.Message(room, fixture.FirstSender, "Bu silinmiş metin saklanmamalı.");
             Apply(fixture, room);
             // First learn metadata from a message explicitly addressed to this
@@ -257,17 +265,19 @@ internal sealed partial class MainForm
             form.UpdateConversationPreviewFromHistory(room.Id, [latest]);
             form.UpdateConversationPreviewFromHistory(room.Id,
                 [latest with { DeletedForEveryone = true, Payloads = [] }]);
-            Require(form.ConversationActivityAt(room) == latest.CreatedAt && Preview(fixture.Card(room)) == "" &&
+            Require(form.ConversationActivityAt(room) == latest.CreatedAt && Preview(fixture.Card(room)) == "Bu mesaj silindi" &&
                 Clock(fixture.Card(room)) == ConversationTime(latest.CreatedAt),
-                "An older server retains a known addressed message's stripped deletion tombstone timestamp without storing removed plaintext");
+                "An older server shows the fixed placeholder for a known addressed message's stripped tombstone without retaining its removed plaintext");
             var unknownTombstone = latest with
             {
                 Id = Guid.NewGuid(), ClientMessageId = Guid.NewGuid(), CreatedAt = latest.CreatedAt.AddDays(1),
                 DeletedForEveryone = true, Payloads = []
             };
             form.UpdateConversationPreviewFromHistory(room.Id, [unknownTombstone]);
-            Require(form.ConversationActivityAt(room) == latest.CreatedAt && Preview(fixture.Card(room)) == "",
-                "A newer unknown non-addressed stripped tombstone cannot disclose another audience's activity or removed text");
+            Require(form.ConversationActivityAt(room) == latest.CreatedAt &&
+                (Preview(fixture.Card(room)) == "" || Preview(fixture.Card(room)) == "Bu mesaj silindi") &&
+                Clock(fixture.Card(room)) == ConversationTime(latest.CreatedAt),
+                "A newer unknown non-addressed stripped tombstone cannot disclose another audience's activity or removed text; a legacy cache may keep only its known marker");
             var rolledBack = room with { LastMessageAt = latest.CreatedAt.AddDays(-1) };
             Apply(fixture, rolledBack);
             Require(form.ConversationActivityAt(rolledBack) == latest.CreatedAt,

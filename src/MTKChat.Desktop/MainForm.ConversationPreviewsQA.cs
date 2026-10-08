@@ -262,14 +262,14 @@ internal sealed partial class MainForm
             Require(Preview(fixture.Card(room)).Text == "Kendi son mesajım", "The sender's own encrypted last message is previewed too");
             fixture.Handler.Messages[room.Id] = [earlier, own with { DeletedForEveryone = true }];
             HistoryQaPump(form.RefreshMessagesAsync(true));
-            Require(Preview(fixture.Card(room)).Text == "Silinen mesajdan önceki gerçek mesaj",
-                "After the latest message is deleted, the preceding authenticated message is shown even before metadata catches up");
+            Require(Preview(fixture.Card(room)).Text == "Bu mesaj silindi",
+                "After the latest message is deleted, the fixed sidebar placeholder is shown even before metadata catches up");
             Require(Clock(fixture.Card(room)) == ConversationTime(own.CreatedAt),
-                "Deleting the latest message retains its activity clock independently of the preceding preview");
+                "Deleting the latest message retains its activity clock beside the fixed sidebar placeholder");
             fixture.Handler.Messages[room.Id] = [own with { DeletedForEveryone = true }];
             HistoryQaPump(form.RefreshMessagesAsync(true));
-            Require(Preview(fixture.Card(room)).Text == "", "Deleted-for-everyone content is never resurrected as a latest preview");
-            Require(Clock(fixture.Card(room)) == ConversationTime(own.CreatedAt), "Deleting the only remaining visible message preserves its activity clock without its content");
+            Require(Preview(fixture.Card(room)).Text == "Bu mesaj silindi", "Deleting the only remaining message keeps the fixed sidebar placeholder without resurrecting its content");
+            Require(Clock(fixture.Card(room)) == ConversationTime(own.CreatedAt), "Deleting the only remaining visible message preserves its activity clock beside the fixed sidebar placeholder");
         }
         Require(PreviewLine("image/png", "") == "Fotoğraf" && PreviewLine("audio/wav", "") == "Sesli mesaj" &&
             PreviewLine("file", "▤  rapor.pdf\n123 KB\n↓ Kaydet") == "rapor.pdf",

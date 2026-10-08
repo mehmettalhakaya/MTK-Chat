@@ -137,7 +137,7 @@ public sealed class ConversationActivityTests
     }
 
     [Fact]
-    public void DeletedActivityPersistsAndLegacySnapshotsUseOnlyCurrentlyVisibleMessages()
+    public void DeletedActivityPersistsAndLegacySnapshotsNeverInferRecipientAccess()
     {
         var clock = new Clock(DateTimeOffset.UtcNow); var state = new ChatState(timeProvider: clock);
         var a = User(state, "A"); var b = User(state, "B"); var room = state.GetOrCreateDirect(a.Id, b.Id)!;
@@ -150,10 +150,13 @@ public sealed class ConversationActivityTests
         Assert.Equal(newest.CreatedAt, Summary(restored, b, room).LastActivityAt);
         Assert.Null(Summary(restored, b, room).LastMessageAt);
         var legacy = JsonNode.Parse(json)!; legacy.AsObject().Remove("ConversationActivities");
+        legacy.AsObject().Remove("DeletedMessageAudiences");
         var old = Restore(legacy.ToJsonString(), clock, a, b);
         Assert.True(Summary(old, b, room).ActivityMetadataAvailable);
         Assert.Null(Summary(old, b, room).LastActivityAt);
-        Assert.Equal(older.CreatedAt, Summary(old, a, room).LastActivityAt);
+        // A legacy sender still knows its own tombstone even when the old snapshot
+        // lacks recipient evidence; arbitrary recipients must not infer that access.
+        Assert.Equal(newest.CreatedAt, Summary(old, a, room).LastActivityAt);
         Assert.Equal(older.CreatedAt, Summary(old, a, room).LastMessageAt);
     }
 

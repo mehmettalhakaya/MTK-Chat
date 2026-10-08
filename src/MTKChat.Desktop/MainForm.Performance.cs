@@ -55,6 +55,7 @@ internal sealed partial class MainForm
         left.Id == right.Id && left.Title == right.Title && left.LastMessagePreview == right.LastMessagePreview &&
         left.LastMessageAt == right.LastMessageAt && left.UnreadCount == right.UnreadCount &&
         left.LastActivityAt == right.LastActivityAt && left.ActivityMetadataAvailable == right.ActivityMetadataAvailable &&
+        left.LastDeletedMessageAt == right.LastDeletedMessageAt && left.DeletedMessageMetadataAvailable == right.DeletedMessageMetadataAvailable &&
         left.PhotoVersion == right.PhotoVersion && left.Kind == right.Kind &&
         left.Participants.SequenceEqual(right.Participants) &&
         (left.GroupRoles?.Count ?? 0) == (right.GroupRoles?.Count ?? 0) &&
@@ -86,7 +87,9 @@ internal sealed partial class MainForm
                 var conversation = conversations[index];
                 if (old.TryGetValue(conversation.Id, out var existing) && existing.Tag is ConversationSummary previous &&
                     ConversationVisualEquals(previous with { LastActivityAt = conversation.LastActivityAt,
-                        ActivityMetadataAvailable = conversation.ActivityMetadataAvailable }, conversation))
+                        ActivityMetadataAvailable = conversation.ActivityMetadataAvailable,
+                        LastDeletedMessageAt = conversation.LastDeletedMessageAt,
+                        DeletedMessageMetadataAvailable = conversation.DeletedMessageMetadataAvailable }, conversation))
                 {
                     // A metadata-only movement does not invalidate an avatar/menu.
                     existing.Tag = conversation;

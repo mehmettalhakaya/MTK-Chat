@@ -10,6 +10,12 @@ internal static class Program
         // App-owned menus use our renderer; DevExpress editor/grid-generated popups
         // also need a dark base skin so their margins and command panels stay dark.
         DevExpress.LookAndFeel.UserLookAndFeel.Default.SetSkinStyle("Office 2019 Black");
+        if (args.Contains("--verify-deleted-previews", StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var check in MainForm.VerifyDeletedConversationPreviews(Path.Combine(AppContext.BaseDirectory, "snapshots")))
+                Console.WriteLine("Deleted conversation preview QA: " + check);
+            return;
+        }
         if (args.Contains("--verify-conversation-order", StringComparer.OrdinalIgnoreCase))
         {
             foreach (var check in MainForm.VerifyConversationOrdering(Path.Combine(AppContext.BaseDirectory, "snapshots")))

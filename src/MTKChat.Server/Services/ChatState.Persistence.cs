@@ -37,7 +37,8 @@ public sealed partial class ChatState
         ProfileNameData[]? ProfileNames = null,
         StatusData[]? Statuses = null,
         PinnedMessageView[]? Pins = null,
-        ConversationActivityData[]? ConversationActivities = null);
+        ConversationActivityData[]? ConversationActivities = null,
+        DeletedMessageAudienceData[]? DeletedMessageAudiences = null);
 
     private void PersistUnsafe()
     {
@@ -69,7 +70,8 @@ public sealed partial class ChatState
             _profileNames.Values.ToArray(),
             _statuses.Values.ToArray(),
             _pins.Values.ToArray(),
-            _conversationActivity.Values.ToArray());
+            _conversationActivity.Values.ToArray(),
+            _deletedMessageAudiences.Select(item => new DeletedMessageAudienceData(item.Key, item.Value.ToArray())).ToArray());
         return JsonSerializer.Serialize(snapshot);
     }
 
@@ -105,6 +107,7 @@ public sealed partial class ChatState
             _messages[message.Id] = message;
             _clientMessageIds[(message.SenderId, message.ClientMessageId)] = message.Id;
         }
+        RestoreDeletedMessageAudiencesUnsafe(snapshot.DeletedMessageAudiences);
         _receipts.Clear();
         foreach (var row in snapshot.Receipts ?? [])
             if (_messages.TryGetValue(row.MessageId, out var message) && !message.DeletedForEveryone &&
@@ -234,6 +237,8 @@ public sealed partial class ChatState
                          !room.MemberIds.Contains(item.UserId)).ToArray()) { _groupRoles.Remove(key); changed = true; }
             foreach (var key in _conversationActivity.Keys.Where(item => !_conversations.TryGetValue(item.ConversationId, out var room) ||
                          !room.MemberIds.Contains(item.UserId)).ToArray()) { _conversationActivity.Remove(key); changed = true; }
+            foreach (var audience in _deletedMessageAudiences.Values)
+                if (audience.RemoveWhere(id => !_users.ContainsKey(id)) > 0) changed = true;
             foreach (var id in _devicesByUser.Keys.Where(id => !_users.ContainsKey(id)).ToArray())
             {
                 _devicesByUser.Remove(id);

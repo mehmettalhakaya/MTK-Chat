@@ -12,13 +12,18 @@ internal sealed partial class MainForm
     // diagnostic log, request or database stores them. Keep one bounded line per room.
     private readonly Dictionary<Guid, ConversationPreview> _conversationPreviews = new();
     private readonly Dictionary<Guid, object> _previewRequests = new();
+    private readonly HashSet<Guid> _suppressedDeletedPreviews = new();
     private readonly CancellationTokenSource _previewLifetime = new();
     private Guid? _previewOwner;
     private Task _previewRefreshTask = Task.CompletedTask;
     private bool _previewRefreshAgain;
     private bool _previewSessionExpired;
+    private int _previewVisibilityVersion;
+    private const string DeletedConversationPreview = "Bu mesaj silindi";
     private sealed record ConversationPreview(DateTimeOffset? LastAt, DateTimeOffset? SummaryAt, string Text, DateTimeOffset? ExpiresAt,
-        DateTimeOffset RefreshAfter);
+        DateTimeOffset RefreshAfter, Guid? MessageId = null, bool Deleted = false,
+        DateTimeOffset? DeletedSummaryAt = null, bool DeletedMetadataAvailable = false,
+        DateTimeOffset? DeletedExpiresAt = null);
 
     private void EnsurePreviewOwner()
     {
@@ -28,14 +33,46 @@ internal sealed partial class MainForm
         _conversationPreviews.Clear();
         _conversationActivity.Clear();
         _previewRequests.Clear(); // Late continuations from another account cannot commit.
+        _suppressedDeletedPreviews.Clear();
     }
+
+    private static bool PreviewSummaryMatches(ConversationPreview preview, ConversationSummary room) =>
+        (preview.SummaryAt == room.LastMessageAt || preview.LastAt == room.LastMessageAt) &&
+        preview.DeletedSummaryAt == room.LastDeletedMessageAt &&
+        preview.DeletedMetadataAvailable == room.DeletedMessageMetadataAvailable;
+
+    private DateTimeOffset? DeletedPreviewAt(ConversationSummary room)
+    {
+        if (_suppressedDeletedPreviews.Contains(room.Id) || room.LastDeletedMessageAt is not { } deleted ||
+            room.LastMessageAt > deleted) return null;
+        // History may have learned an expiry before the next summary poll. Never
+        // let a date-only summary revive that already expired deletion marker.
+        if (_conversationPreviews.TryGetValue(room.Id, out var known) && PreviewSummaryMatches(known, room) &&
+            (known.DeletedExpiresAt <= DateTimeOffset.UtcNow ||
+             known.Deleted && known.LastAt == deleted && known.ExpiresAt <= DateTimeOffset.UtcNow)) return null;
+        return deleted;
+    }
+
+    private static bool PreviewMetadataEquals(ConversationSummary left, ConversationSummary right) =>
+        left.Id == right.Id && left.LastMessageAt == right.LastMessageAt &&
+        left.LastDeletedMessageAt == right.LastDeletedMessageAt &&
+        left.DeletedMessageMetadataAvailable == right.DeletedMessageMetadataAvailable;
+
+    private bool HistoryPreviewMetadataCurrent(ConversationSummary requested) =>
+        _selectedConversation is { } current && PreviewMetadataEquals(requested, current);
 
     private string ConversationPreviewText(ConversationSummary room)
     {
         EnsurePreviewOwner();
-        if (!_conversationPreviews.TryGetValue(room.Id, out var preview) ||
-            preview.SummaryAt != room.LastMessageAt && preview.LastAt != room.LastMessageAt ||
-            preview.ExpiresAt <= DateTimeOffset.UtcNow) return "";
+        var valid = _conversationPreviews.TryGetValue(room.Id, out var preview) &&
+            PreviewSummaryMatches(preview, room) && !(preview.ExpiresAt <= DateTimeOffset.UtcNow);
+        // A server-authorized tombstone contains no old message content or key.
+        // It also invalidates an old decrypted preview before another GET completes.
+        if (DeletedPreviewAt(room) is { } deleted && !(valid && !preview!.Deleted && preview.LastAt > deleted))
+            return DeletedConversationPreview;
+        if (!valid || _suppressedDeletedPreviews.Contains(room.Id) ||
+            preview!.Deleted && room.DeletedMessageMetadataAvailable && room.LastDeletedMessageAt is null &&
+            !(preview.LastAt <= room.LastMessageAt)) return "";
         return preview.Text;
     }
 
@@ -49,6 +86,8 @@ internal sealed partial class MainForm
     {
         EnsurePreviewOwner();
         var current = rooms.ToDictionary(room => room.Id);
+        // Only a fresh access-checked summary may end a local deletion/block barrier.
+        _suppressedDeletedPreviews.Clear();
         foreach (var id in _conversationActivity.Keys.Where(id => !current.ContainsKey(id)).ToArray())
             _conversationActivity.Remove(id);
         foreach (var room in rooms) ObserveConversationActivity(room);
@@ -60,9 +99,12 @@ internal sealed partial class MainForm
                 _previewRequests.Remove(id);
                 continue;
             }
-            if (_conversationPreviews.TryGetValue(id, out var preview) && preview.SummaryAt != room.LastMessageAt)
+            if (_conversationPreviews.TryGetValue(id, out var preview) &&
+                (preview.SummaryAt != room.LastMessageAt || preview.DeletedSummaryAt != room.LastDeletedMessageAt ||
+                 preview.DeletedMetadataAvailable != room.DeletedMessageMetadataAvailable))
             {
-                if (preview.LastAt == room.LastMessageAt)
+                if (preview.LastAt == room.LastMessageAt && preview.DeletedSummaryAt == room.LastDeletedMessageAt &&
+                    preview.DeletedMetadataAvailable == room.DeletedMessageMetadataAvailable)
                     // The summary caught up with a newer already-authenticated history.
                     _conversationPreviews[id] = preview with { SummaryAt = room.LastMessageAt };
                 else
@@ -106,10 +148,21 @@ internal sealed partial class MainForm
         if (room is null) return;
         var now = DateTimeOffset.UtcNow;
         ObserveConversationActivity(room, messages);
-        var last = LatestPreviewMessage(messages, now);
+        var last = LatestPreviewMessage(room, messages, now);
+        // Keep expiry metadata even after that row drops out of the visible
+        // candidate set, otherwise a stale summary could revive its marker.
+        var deletedExpiry = messages.FirstOrDefault(message => message.ConversationId == roomId &&
+            message.DeletedForEveryone && message.CreatedAt == room.LastDeletedMessageAt)?.ExpiresAt;
+        if (deletedExpiry is null && _conversationPreviews.TryGetValue(roomId, out var previous) && PreviewSummaryMatches(previous, room))
+            deletedExpiry = previous.DeletedExpiresAt;
         var text = "";
         var authenticated = last is null;
-        if (last is not null && _renderedMessageRows.TryGetValue(last.Id, out var rendered) && rendered.Row.CanStar)
+        if (last is { DeletedForEveryone: true })
+        {
+            authenticated = true;
+            text = DeletedConversationPreview;
+        }
+        else if (last is not null && _renderedMessageRows.TryGetValue(last.Id, out var rendered) && rendered.Row.CanStar)
         {
             authenticated = true;
             text = PreviewLine(last.Kind, rendered.Row.StarredPreview);
@@ -117,14 +170,37 @@ internal sealed partial class MainForm
         // A newer committed history wins over an older in-flight preview GET.
         _previewRequests.Remove(roomId);
         _conversationPreviews[roomId] = new(last?.CreatedAt, room.LastMessageAt, text, last?.ExpiresAt,
-            now.AddSeconds(authenticated ? 60 : 15));
+            now.AddSeconds(authenticated ? 60 : 15), last?.Id, last?.DeletedForEveryone ?? false,
+            room.LastDeletedMessageAt, room.DeletedMessageMetadataAvailable, deletedExpiry);
         ApplyConversationPreviewLabel(room);
         ApplyConversationOrder();
     }
 
-    private static StoredMessage? LatestPreviewMessage(IEnumerable<StoredMessage> messages, DateTimeOffset now) =>
-        messages.Where(m => !m.DeletedForEveryone && (m.ExpiresAt is null || m.ExpiresAt > now))
+    private StoredMessage? LatestPreviewMessage(ConversationSummary room, IEnumerable<StoredMessage> messages, DateTimeOffset now) =>
+        messages.Where(m => PreviewMessageEligible(room, m, now))
             .OrderByDescending(m => m.CreatedAt).FirstOrDefault();
+
+    private bool PreviewMessageEligible(ConversationSummary room, StoredMessage message, DateTimeOffset now)
+    {
+        if (message.ConversationId != room.Id || message.ExpiresAt <= now ||
+            room.ActivityMetadataAvailable && room.LastActivityAt is null || _suppressedDeletedPreviews.Contains(room.Id)) return false;
+        var addressed = message.SenderId == _session?.User.Id ||
+            message.Payloads.Any(payload => payload.RecipientId == _session?.User.Id);
+        if (!message.DeletedForEveryone) return addressed;
+        if (room.DeletedMessageMetadataAvailable)
+            return room.LastDeletedMessageAt is { } deleted && message.CreatedAt <= deleted &&
+                (addressed || message.CreatedAt == deleted) ||
+                // Selected history is polled before the list. Exact addressed
+                // evidence may report deletion while its live summary still lags.
+                // An authoritative null/rollback must not accept that evidence.
+                room.LastMessageAt >= message.CreatedAt && (addressed ||
+                    _conversationPreviews.TryGetValue(room.Id, out var prior) && prior.MessageId == message.Id);
+        // An old server strips all recipient envelopes on deletion. Only an exact
+        // previously addressed message id is evidence, never a matching timestamp.
+        return addressed ||
+            _conversationPreviews.TryGetValue(room.Id, out var known) && known.MessageId == message.Id ||
+            _conversationActivity.TryGetValue(room.Id, out var activity) && activity.MessageId == message.Id;
+    }
 
     private static string PreviewLine(string kind, string text)
     {
@@ -150,6 +226,7 @@ internal sealed partial class MainForm
     private void InvalidateConversationVisibility(Guid? roomId = null, bool preserveActivity = true)
     {
         EnsurePreviewOwner();
+        _previewVisibilityVersion++;
         var affected = _conversationList.Controls.OfType<RoundedPanel>().Select(c => c.Tag)
             .OfType<ConversationSummary>().Where(r => roomId is null || r.Id == roomId).ToArray();
         foreach (var room in affected)
@@ -157,6 +234,7 @@ internal sealed partial class MainForm
             if (!preserveActivity) _conversationActivity.Remove(room.Id);
             _conversationPreviews.Remove(room.Id);
             _previewRequests.Remove(room.Id);
+            _suppressedDeletedPreviews.Add(room.Id);
             ApplyConversationPreviewLabel(room);
         }
         if (_selectedConversation is null || roomId is not null && _selectedConversation.Id != roomId) return;
@@ -196,8 +274,9 @@ internal sealed partial class MainForm
             var rooms = _conversationList.Controls.OfType<RoundedPanel>().Select(c => c.Tag)
                 .OfType<ConversationSummary>().ToArray();
             foreach (var room in rooms) ApplyConversationPreviewLabel(room);
-            var pending = rooms.Where(room => room.LastMessageAt is not null && room.Id != _selectedConversation?.Id &&
-                (!_conversationPreviews.TryGetValue(room.Id, out var p) || p.SummaryAt != room.LastMessageAt ||
+            var pending = rooms.Where(room => room.LastMessageAt is not null && DeletedPreviewAt(room) is null &&
+                !_suppressedDeletedPreviews.Contains(room.Id) && room.Id != _selectedConversation?.Id &&
+                (!_conversationPreviews.TryGetValue(room.Id, out var p) || !PreviewSummaryMatches(p, room) ||
                  p.RefreshAfter <= now || p.ExpiresAt <= now)).ToArray();
             foreach (var batch in pending.Chunk(2))
             {
@@ -211,6 +290,7 @@ internal sealed partial class MainForm
     private async Task LoadConversationPreviewAsync(ConversationSummary requested)
     {
         if (_session is null || IsDisposed || Disposing || _previewSessionExpired) return;
+        if (DeletedPreviewAt(requested) is not null || requested.LastMessageAt is null) return;
         var owner = _session.User.Id;
         var request = new object();
         _previewRequests[requested.Id] = request;
@@ -219,14 +299,18 @@ internal sealed partial class MainForm
         string text = "";
         DateTimeOffset? expiry = null;
         DateTimeOffset? actualLastAt = requested.LastMessageAt;
+        DateTimeOffset? deletedExpiry = null;
         var success = false;
+        Guid? messageId = null;
+        var deleted = false;
         ConversationPreview? retained = null;
-        if (_conversationPreviews.TryGetValue(requested.Id, out var known) && known.SummaryAt == requested.LastMessageAt)
+        if (_conversationPreviews.TryGetValue(requested.Id, out var known) && PreviewSummaryMatches(known, requested))
         {
             // A failed GET cannot resurrect the clock of a known expired/empty
             // history. Preserve only its date/expiry metadata, never stale text.
             actualLastAt = known.LastAt;
             expiry = known.ExpiresAt;
+            deletedExpiry = known.DeletedExpiresAt;
         }
         try
         {
@@ -236,11 +320,16 @@ internal sealed partial class MainForm
             if (messages.Any(m => m.ConversationId != requested.Id))
                 throw new InvalidDataException("Önizleme farklı bir sohbete ait.");
             ObserveConversationActivity(requested, messages);
-            var last = LatestPreviewMessage(messages, DateTimeOffset.UtcNow);
+            deletedExpiry = messages.FirstOrDefault(message => message.DeletedForEveryone &&
+                message.CreatedAt == requested.LastDeletedMessageAt)?.ExpiresAt ?? deletedExpiry;
+            var last = LatestPreviewMessage(requested, messages, DateTimeOffset.UtcNow);
             actualLastAt = last?.CreatedAt;
+            messageId = last?.Id;
+            deleted = last?.DeletedForEveryone ?? false;
             // Even an unavailable key must not leave an expired clock behind.
             expiry = last?.ExpiresAt;
-            if (last is not null)
+            if (deleted) text = DeletedConversationPreview;
+            else if (last is not null)
             {
                 var payload = last.Payloads.FirstOrDefault(p => p.RecipientId == owner)
                     ?? throw new CryptographicException("Önizleme zarfı bu hesaba ait değil.");
@@ -275,7 +364,7 @@ internal sealed partial class MainForm
                 // authenticated text. Never retain it for bad signatures, 401/403,
                 // a changed summary or a locally expired message.
                 if (_conversationPreviews.TryGetValue(requested.Id, out var cached) &&
-                    cached.SummaryAt == requested.LastMessageAt &&
+                    PreviewSummaryMatches(cached, requested) &&
                     (cached.ExpiresAt is null || cached.ExpiresAt > DateTimeOffset.UtcNow)) retained = cached;
             }
         }
@@ -283,7 +372,8 @@ internal sealed partial class MainForm
         _previewRequests.Remove(requested.Id);
         var refreshAfter = DateTimeOffset.UtcNow.AddSeconds(success ? 60 : 15);
         _conversationPreviews[requested.Id] = retained is not null ? retained with { RefreshAfter = refreshAfter } :
-            new(actualLastAt, requested.LastMessageAt, text, expiry, refreshAfter);
+            new(actualLastAt, requested.LastMessageAt, text, expiry, refreshAfter, messageId, deleted,
+                requested.LastDeletedMessageAt, requested.DeletedMessageMetadataAvailable, deletedExpiry);
         ApplyConversationPreviewLabel(requested);
         ApplyConversationOrder();
     }
@@ -292,5 +382,7 @@ internal sealed partial class MainForm
         !IsDisposed && !Disposing && !_previewLifetime.IsCancellationRequested && _session?.User.Id == owner &&
         _previewRequests.TryGetValue(requested.Id, out var currentRequest) && ReferenceEquals(currentRequest, request) &&
         _conversationList.Controls.OfType<RoundedPanel>().Any(c => c.Tag is ConversationSummary room &&
-            room.Id == requested.Id && room.LastMessageAt == requested.LastMessageAt);
+            room.Id == requested.Id && room.LastMessageAt == requested.LastMessageAt &&
+            room.LastDeletedMessageAt == requested.LastDeletedMessageAt &&
+            room.DeletedMessageMetadataAvailable == requested.DeletedMessageMetadataAvailable);
 }

@@ -407,11 +407,15 @@ public sealed partial class ChatState
                         .Where(message => message!.SenderId == userId || message.Payloads.Any(payload => payload.RecipientId == userId))
                         .OrderByDescending(message => message!.CreatedAt)
                         .FirstOrDefault();
+                    var deletedAt = LastDeletedMessageAtUnsafe(conversation, userId, now);
+                    var deletedIsLatest = deletedAt is not null && (last is null || deletedAt >= last.CreatedAt);
+                    var visibleActivityAt = deletedIsLatest
+                        ? deletedAt : last?.CreatedAt;
                     return new ConversationSummary(
                         conversation.Id,
                         conversation.Title,
                         conversation.MemberIds.Select(id => _users[id]).ToArray(),
-                        last is null ? "Henüz mesaj yok" : "🔒 Uçtan uca şifreli mesaj",
+                        deletedIsLatest ? "Bu mesaj silindi" : last is null ? "Henüz mesaj yok" : "🔒 Uçtan uca şifreli mesaj",
                         last?.CreatedAt,
                         conversation.MessageIds.Count(id => _messages.TryGetValue(id, out var message) &&
                             CanReceiveUnsafe(userId, message) && _receipts.GetValueOrDefault((id, userId))?.ReadAt is null &&
@@ -419,7 +423,8 @@ public sealed partial class ChatState
                         _groupPhotos.GetValueOrDefault(conversation.Id)?.Version,
                         conversation.Kind,
                         conversation.Kind == "direct" ? null : conversation.MemberIds.ToDictionary(id => id, id => GetGroupRole(conversation.Id, id)),
-                        ConversationActivityAtUnsafe(conversation.Id, userId, last?.CreatedAt, now), true) with
+                        ConversationActivityAtUnsafe(conversation.Id, userId, visibleActivityAt, now), true,
+                        deletedAt, true) with
                     {
                         Title = conversation.Kind == "direct"
                             ? conversation.MemberIds.Where(id => id != userId).Select(id => _users[id].DisplayName).FirstOrDefault() ?? "Özel sohbet"
@@ -448,7 +453,8 @@ public sealed partial class ChatState
             PersistUnsafe();
             return new ConversationSummary(state.Id, state.Title, memberIds.Select(id => _users[id]).ToArray(), "Henüz mesaj yok", null, 0,
                 _groupPhotos.GetValueOrDefault(state.Id)?.Version, "group",
-                memberIds.ToDictionary(id => id, id => GetGroupRole(state.Id, id)));
+                memberIds.ToDictionary(id => id, id => GetGroupRole(state.Id, id)),
+                ActivityMetadataAvailable: true, DeletedMessageMetadataAvailable: true);
         }
     }
 
@@ -544,7 +550,7 @@ public sealed partial class ChatState
             if (!_conversations.TryGetValue(conversationId, out var conversation) || !conversation.MemberIds.Contains(userId))
                 return Array.Empty<StoredMessage>();
 
-            var now = DateTimeOffset.UtcNow;
+            var now = _time.GetUtcNow();
             return conversation.MessageIds
                 .Select(id => _messages.GetValueOrDefault(id))
                 .Where(message => message is not null)
@@ -552,6 +558,7 @@ public sealed partial class ChatState
                 .Where(message => !_hiddenMessages.Contains((userId, message.Id)))
                 .Where(message => !IsBlockedUnsafe(userId, message.SenderId))
                 .Where(message => message.ExpiresAt is null || message.ExpiresAt > now)
+                .Where(message => !message.DeletedForEveryone || CanSeeDeletionUnsafe(userId, message))
                 .Where(message => after is null || message.CreatedAt > after)
                 .Select(message => message with {
                     Payloads = message.Payloads.Where(payload => payload.RecipientId == userId).ToArray(),
@@ -579,6 +586,8 @@ public sealed partial class ChatState
             // acquire a fresh deletion window when the server upgrades or restarts.
             if (message.DeleteForEveryoneUntil is null || _time.GetUtcNow() >= message.DeleteForEveryoneUntil)
                 return DeleteResult.WindowExpired;
+            _deletedMessageAudiences[messageId] = message.Payloads.Select(payload => payload.RecipientId)
+                .Append(message.SenderId).ToHashSet();
             _messages[messageId] = message with { DeletedForEveryone = true, Payloads = Array.Empty<EncryptedPayload>(), Attachment = null };
             RemoveReceiptsUnsafe([messageId]);
             PersistUnsafe();
@@ -605,12 +614,13 @@ public sealed partial class ChatState
     {
         lock (_gate)
         {
-            var ids = _messages.Values.Where(message => message.ExpiresAt <= DateTimeOffset.UtcNow).Select(message => message.Id).ToArray();
+            var ids = _messages.Values.Where(message => message.ExpiresAt <= _time.GetUtcNow()).Select(message => message.Id).ToArray();
             var fileTokens = ids.Select(id => _messages[id].Attachment?.StorageToken)
                 .Where(token => token is not null).Select(token => token!).ToArray();
             foreach (var id in ids)
             {
                 if (_messages.Remove(id, out var message)) _clientMessageIds.Remove((message.SenderId, message.ClientMessageId));
+                _deletedMessageAudiences.Remove(id);
                 foreach (var conversation in _conversations.Values) conversation.MessageIds.Remove(id);
             }
             var removedIds = ids.ToHashSet();

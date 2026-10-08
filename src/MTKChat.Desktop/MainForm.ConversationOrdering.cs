@@ -8,7 +8,7 @@ internal sealed partial class MainForm
     // Compatibility for older servers only: retain dates, never deleted plaintext.
     // Current servers own the persisted, access-checked activity watermark.
     private readonly Dictionary<Guid, ConversationActivity> _conversationActivity = new();
-    private sealed record ConversationActivity(DateTimeOffset At, DateTimeOffset? ExpiresAt);
+    private sealed record ConversationActivity(DateTimeOffset At, DateTimeOffset? ExpiresAt, Guid? MessageId = null);
 
     private DateTimeOffset? ConversationActivityAt(ConversationSummary room)
     {
@@ -17,8 +17,9 @@ internal sealed partial class MainForm
         if (_conversationPreviews.TryGetValue(room.Id, out var preview) && preview.LastAt is { } previewAt &&
             (preview.SummaryAt == room.LastMessageAt || previewAt == room.LastMessageAt) &&
             (!_conversationActivity.TryGetValue(room.Id, out var observed) || previewAt >= observed.At))
-            _conversationActivity[room.Id] = new(previewAt, preview.ExpiresAt);
+            _conversationActivity[room.Id] = new(previewAt, preview.ExpiresAt, preview.MessageId);
         var date = room.LastMessageAt;
+        if (DeletedPreviewAt(room) is { } deleted && (date is null || deleted > date)) date = deleted;
         if (!_conversationActivity.TryGetValue(room.Id, out var known)) return date;
         if (known.ExpiresAt <= DateTimeOffset.UtcNow)
             return date == known.At ? null : date;
@@ -31,12 +32,10 @@ internal sealed partial class MainForm
         if (room.LastMessageAt is { } at &&
             (!_conversationActivity.TryGetValue(room.Id, out var known) || at > known.At))
             _conversationActivity[room.Id] = new(at, null);
-        var last = history?.Where(message => message.SenderId == _session?.User.Id ||
-                message.Payloads.Any(payload => payload.RecipientId == _session?.User.Id) ||
-                message.DeletedForEveryone && _conversationActivity.TryGetValue(room.Id, out var eligible) && eligible.At == message.CreatedAt)
+        var last = history?.Where(message => PreviewMessageEligible(room, message, DateTimeOffset.UtcNow))
             .OrderByDescending(message => message.CreatedAt).FirstOrDefault();
         if (last is not null && (!_conversationActivity.TryGetValue(room.Id, out var prior) || last.CreatedAt >= prior.At))
-            _conversationActivity[room.Id] = new(last.CreatedAt, last.ExpiresAt);
+            _conversationActivity[room.Id] = new(last.CreatedAt, last.ExpiresAt, last.Id);
     }
 
     private ConversationSummary[] OrderedConversations(IEnumerable<ConversationSummary> rooms) => rooms
