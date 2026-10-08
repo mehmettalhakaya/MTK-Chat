@@ -6,6 +6,8 @@ internal static class SnapshotRenderer
     {
         var outputDirectory = Path.Combine(AppContext.BaseDirectory, "snapshots");
         Directory.CreateDirectory(outputDirectory);
+        foreach (var check in MainForm.VerifyMessageActions(outputDirectory)) Console.WriteLine("Message actions QA: " + check);
+        foreach (var check in LoginRegistrationQA.Verify(outputDirectory)) Console.WriteLine("Login registration QA: " + check);
         foreach (var check in MainForm.VerifyEmojiPickerIntegration(outputDirectory)) Console.WriteLine("Emoji picker QA: " + check);
         foreach (var check in EmojiMessageQA.Verify(outputDirectory)) Console.WriteLine("Emoji message QA: " + check);
         foreach (var check in InlineEmojiTextQA.Verify(outputDirectory)) Console.WriteLine("Inline emoji QA: " + check);

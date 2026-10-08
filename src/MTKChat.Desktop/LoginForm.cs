@@ -6,16 +6,29 @@ namespace MTKChat.Desktop;
 
 internal sealed class LoginForm : ModernForm
 {
+    // The website has one verified sign-in/registration page. Keep the destination
+    // fixed instead of accepting an untrusted URL from account or server metadata.
+    internal static readonly Uri RegistrationUri = new("https://mtkaya.me/loginregister.html");
     private readonly TextEdit _email = new();
     private readonly TextEdit _password = new();
     private readonly ModernButton _login = Theme.Button("Giriş yap  ↗", ButtonKind.Primary);
     private readonly Label _error = new();
+    private readonly Action<Uri> _openWebsite;
+
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal LinkLabel RegistrationLinkForQa { get; private set; } = null!;
+    internal Label ErrorForQa => _error;
+    internal ModernButton LoginButtonForQa => _login;
 
     public string Email => _email.Text.Trim();
     public string Password => _password.Text;
 
-    public LoginForm()
+    public LoginForm() : this(uri => System.Diagnostics.Process.Start(
+        new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true })) { }
+
+    internal LoginForm(Action<Uri> openWebsite)
     {
+        _openWebsite = openWebsite ?? throw new ArgumentNullException(nameof(openWebsite));
         Text = "MTK Chat · Giriş";
         Icon = Theme.AppIcon();
         // This form owns its pixel geometry; scaling the font and a second auto-layout pass
@@ -104,15 +117,34 @@ internal sealed class LoginForm : ModernForm
         };
         forgot.LinkClicked += (_, _) =>
         {
-            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://mtkaya.me/loginregister.html") { UseShellExecute = true }); }
+            try { _openWebsite(RegistrationUri); }
             catch { ShowError("Tarayıcı açılamadı. mtkaya.me giriş sayfasını açabilirsin."); }
         };
+
+        const string signupPrompt = "Hesabınız yok mu? ";
+        const string signupAction = "Kayıt olun ↗";
+        var register = RegistrationLinkForQa = new LinkLabel
+        {
+            Name = "RegistrationLink", Text = signupPrompt + signupAction,
+            AccessibleName = "Hesabınız yok mu? Kayıt olun",
+            AccessibleDescription = "mtkaya.me kayıt sayfasını varsayılan tarayıcıda açar.",
+            BackColor = Color.Transparent, ForeColor = Theme.Muted,
+            TextAlign = ContentAlignment.MiddleCenter, LinkColor = Theme.Violet,
+            ActiveLinkColor = Theme.AccentHover, VisitedLinkColor = Theme.Violet,
+            LinkBehavior = LinkBehavior.HoverUnderline, Font = Theme.Font(9f),
+            TabStop = true
+        };
+        register.Links.Clear();
+        register.Links.Add(signupPrompt.Length, signupAction.Length, RegistrationUri);
+        register.LinkClicked += (_, _) => OpenRegistration();
         content.Controls.AddRange([title, subtitle, emailLabel, emailFrame,
-            passwordLabel, passwordFrame, forgot, _error, _login]);
+            passwordLabel, passwordFrame, forgot, _error, _login, register]);
         void LayoutContent()
         {
             var width = Math.Max(Scale(300), Math.Min(Scale(400), host.ClientSize.Width - Scale(48)));
-            var height = Scale(478);
+            // Reserve a separate footer row; the new signup link must never sit
+            // on top of the error message, submit button, or rounded card edge.
+            var height = Scale(522);
             content.SetBounds(Math.Max(0, (host.ClientSize.Width - width) / 2),
                 Math.Max(0, (host.ClientSize.Height - height) / 2), width, height);
             var inset = Scale(32);
@@ -128,11 +160,18 @@ internal sealed class LoginForm : ModernForm
             Place(forgot, 310, 24);
             Place(_error, 347, 38);
             Place(_login, 398, 48);
+            Place(register, 462, 28);
         }
         host.Resize += (_, _) => LayoutContent();
         host.DpiChangedAfterParent += (_, _) => LayoutContent();
         LayoutContent();
         return host;
+    }
+
+    internal void OpenRegistration()
+    {
+        try { _openWebsite(RegistrationUri); }
+        catch { ShowError("Tarayıcı açılamadı. Kayıt olmak için mtkaya.me sayfasını açabilirsin."); }
     }
 
     private int Scale(int value) => Math.Max(1, (int)Math.Round(value * DeviceDpi / 96f));

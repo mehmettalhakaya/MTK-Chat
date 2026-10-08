@@ -121,10 +121,10 @@ internal sealed partial class MainForm
             "The author's own status appears ahead of shared statuses");
         Require(Descendants(panel).OfType<ModernButton>().Count(button => button.Text == "Sil") == 1,
             "Only the author's own status has a destructive delete action");
-        Require(Descendants(panel).OfType<AvatarView>().All(avatar => avatar.Width == avatar.Height && avatar.Parent!.ClientRectangle.Contains(avatar.Bounds)),
-            "Status-card avatars stay square and centered inside their native grid slots rather than stretching into ovals");
+        VerifyAvatars("Narrow status drawer");
         VerifyButtons(panel, "Narrow status drawer"); Capture(panel, "status-drawer-300.png");
         host.ClientSize = new Size(525, 700); Pump(host);
+        VerifyAvatars("Wide status drawer");
         VerifyButtons(panel, "Wide status drawer"); Capture(panel, "status-drawer-420.png");
         var sharedCard = Descendants(panel).Single(control => control.Tag is StatusSummary summary && summary.Id == shared.Id);
         sharedCard.Controls.Cast<Control>().SelectMany(Descendants).OfType<ModernButton>().Single(button => button.Text == "Göster").PerformClick();
@@ -237,6 +237,20 @@ internal sealed partial class MainForm
 
         void Pump(Form form)
         { for (var i = 0; i < 3; i++) { context.AssertOwner(); form.PerformLayout(); Application.DoEvents(); form.Update(); } }
+        void VerifyAvatars(string scope)
+        {
+            foreach (var avatar in Descendants(panel).OfType<AvatarView>())
+            {
+                var grid = (TableLayoutPanel)avatar.Parent!;
+                var cellWidth = grid.GetColumnWidths()[0];
+                var cellHeight = grid.GetRowHeights()[0];
+                Require(avatar.Width == avatar.Height && grid.ClientRectangle.Contains(avatar.Bounds) &&
+                    Math.Abs(avatar.Left * 2 + avatar.Width - cellWidth) <= 1 &&
+                    Math.Abs(avatar.Top * 2 + avatar.Height - cellHeight) <= 1,
+                    scope + ": status-card avatar stays square, contained and centered in its actual native grid cell: " +
+                    $"avatar={avatar.Bounds}, parent={grid.ClientRectangle}, cell={cellWidth}x{cellHeight}, dpi={avatar.DeviceDpi}");
+            }
+        }
         void VerifyButtons(Control control, string scope)
         {
             foreach (var button in Descendants(control).OfType<ModernButton>().Where(button => button.Visible && button.Text.Length > 0))

@@ -40,6 +40,7 @@ Masaüstü istemcisi, ASP.NET Core API ve MySQL veri katmanı ayrı projelerdir.
 - Okunmamış, favori, kişi, grup ve arşiv filtreleri
 - Mesaj yıldızlama, süreli sabitleme ve asıl mesaja dönüş
 - Kullanıcıya özel silme; kendi mesajını ilk 15 dakikada herkesten silme
+- Mesaj üzerine gelince beliren seçenekler; ikonlu, temaya uygun işlem menüsü
 - Süreli mesajlar ve sohbet bazında bildirim susturma
 
 ### 🎨 Medya ve kişiselleştirme
@@ -94,6 +95,8 @@ Masaüstü istemcisi, ASP.NET Core API ve MySQL veri katmanı ayrı projelerdir.
 2. ZIP'in **tamamını** bir klasöre çıkar; yalnız EXE'yi ayırma.
 3. Bilgisayarında **.NET 9 Windows Desktop Runtime (x64)** bulunduğundan emin ol.
 4. `MTKChat.Desktop.exe` dosyasını aç ve **mtkaya.me hesabınla** giriş yap.
+
+Hesabın yoksa giriş panelindeki **Kayıt olun** bağlantısıyla [mtkaya.me hesap sayfasını](https://mtkaya.me/loginregister.html) açabilirsin.
 
 Paket Windows 10 1809 veya üzeri x64 sürümü hedefler. Kurulum dosyası değil, klasörden çalışan bir dağıtımdır. Yeni hesaplar MTK Lounge'a otomatik alınmaz; grup daveti gerekir. Varsayılan API adresi `https://mtkaya.me/chat/` olduğundan giriş için sunucu erişimi gereklidir.
 
@@ -170,6 +173,8 @@ Derlenmiş masaüstü klasöründen sentetik arayüz regresyonu:
 
 ```powershell
 .\MTKChat.Desktop.exe --verify-emojis
+.\MTKChat.Desktop.exe --verify-message-actions
+.\MTKChat.Desktop.exe --verify-login
 .\MTKChat.Desktop.exe --snapshot
 ```
 

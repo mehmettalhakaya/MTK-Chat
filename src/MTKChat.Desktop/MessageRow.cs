@@ -38,6 +38,10 @@ internal sealed class MessageRow : Panel
     private bool _layingOut;
     private readonly ChatUser _sender;
     private bool _inlineMetadata;
+    private readonly MessageActionButton _actionButton = new();
+    private ContextMenuStrip? _messageMenu;
+    private bool _actionHovered;
+    private bool _menuOpen;
 
     internal MessageRow(ChatUser sender, bool mine, StoredMessage message, string text, byte[]? imageBytes, byte[]? voiceBytes = null)
     {
@@ -145,16 +149,73 @@ internal sealed class MessageRow : Panel
         Controls.Add(_bubble);
         Controls.Add(_heading);
         Controls.Add(Avatar);
+        Controls.Add(_actionButton);
+        _actionButton.Click += (_, _) => ShowMessageActions();
+        _actionButton.GotFocus += (_, _) => RefreshActionVisibility();
+        _actionButton.LostFocus += (_, _) => RefreshActionPointer();
+        // Subscribe once, not once per poll/hover. There is no per-message timer
+        // or popup allocation and voice/file clicks keep their original handlers.
+        void Track(Control control)
+        {
+            control.MouseEnter += (_, _) => RefreshActionPointer();
+            control.MouseLeave += (_, _) => RefreshActionPointer();
+            foreach (Control child in control.Controls) Track(child);
+        }
+        Track(this);
+        MouseMove += (_, e) => TrackActionPointer(e.Location);
         Resize += (_, _) => Reflow();
         Reflow();
     }
 
     internal void SetMessageMenu(ContextMenuStrip menu)
     {
+        if (_messageMenu is not null) throw new InvalidOperationException("Mesaj menüsü zaten bağlı.");
+        _messageMenu = menu;
         _bubble.ContextMenuStrip = menu;
         foreach (Control child in _bubble.Controls) child.ContextMenuStrip = menu;
-        Disposed += (_, _) => menu.Dispose();
+        _heading.ContextMenuStrip = menu;
+        _actionButton.ContextMenuStrip = menu; // Native Shift+F10 / keyboard menu key.
+        menu.Opened += MessageMenuOpened;
+        menu.Closed += MessageMenuClosed;
+        _actionButton.Visible = true;
+        Reflow();
     }
+
+    private void MessageMenuOpened(object? sender, EventArgs e) { _menuOpen = true; RefreshActionVisibility(); }
+    private void MessageMenuClosed(object? sender, ToolStripDropDownClosedEventArgs e)
+    {
+        _menuOpen = false;
+        // Never dispose in Closed: ToolStrip still has native teardown to finish.
+        RefreshActionPointer();
+    }
+
+    private void RefreshActionPointer()
+    {
+        if (!IsDisposed && !Disposing && IsHandleCreated) TrackActionPointer(PointToClient(MousePosition));
+    }
+
+    internal void TrackActionPointer(Point point)
+    {
+        // Include the small bridge to the button so moving off the bubble to
+        // click the arrow cannot make it disappear. Empty row space is not hot.
+        _actionHovered = Rectangle.Union(_bubble.Bounds, _actionButton.Bounds).Contains(point);
+        RefreshActionVisibility();
+    }
+
+    private void RefreshActionVisibility()
+    {
+        if (!IsDisposed && !Disposing) _actionButton.Revealed = _actionHovered || _menuOpen;
+    }
+
+    private void ShowMessageActions()
+    {
+        if (IsDisposed || Disposing || _messageMenu is not { IsDisposed: false } menu) return;
+        if (menu.Visible) { menu.Close(); return; }
+        menu.Show(_actionButton, new Point(_mine ? _actionButton.Width : 0, _actionButton.Height + Scale(4)),
+            _mine ? ToolStripDropDownDirection.BelowLeft : ToolStripDropDownDirection.BelowRight);
+    }
+
+    internal MessageActionButton ActionButtonForQa => _actionButton;
 
     internal void UpdateDelivery(MessageDelivery? delivery)
     {
@@ -212,7 +273,8 @@ internal sealed class MessageRow : Panel
             var avatarSize = Scale(40);
             var avatarGutter = _mine ? 0 : Scale(52);
             var horizontalPadding = Scale(12);
-            var maxWidth = Math.Max(1, Math.Min(Scale(650), Width - avatarGutter - Scale(4)));
+            var actionGutter = _messageMenu is null ? 0 : Scale(36);
+            var maxWidth = Math.Max(1, Math.Min(Scale(650), Width - avatarGutter - actionGutter - Scale(4)));
             var measured = _body.Measure(Math.Max(1, maxWidth - horizontalPadding * 2));
             var minWidth = Math.Min(maxWidth, Scale(_emoji is null ? 152 : 112));
             var receiptWidth = _receipt is null ? 0 : Scale(28);
@@ -249,6 +311,10 @@ internal sealed class MessageRow : Panel
             // RoundedPanel scales its logical radius internally, unlike SetBounds pixel coordinates.
             _bubble.CornerRadius = 13;
             _bubble.SetBounds(left, bubbleTop, width, bubbleHeight);
+            // A dedicated outside gutter preserves every text/media pixel and
+            // time/tick baseline. Hovering cannot reflow or cover the message.
+            _actionButton.SetBounds(_mine ? left - Scale(34) : _bubble.Right + Scale(6),
+                bubbleTop, Scale(28), Scale(28));
             _body.SetBounds(horizontalPadding, bodyTop, bodyWidth, bodyHeight);
             _body.Visible = _picture is null && _voiceButton is null && _emoji is null;
             _emoji?.SetBounds(horizontalPadding, bodyTop, bodyWidth, bodyHeight);
@@ -261,6 +327,7 @@ internal sealed class MessageRow : Panel
             _receipt?.SetBounds(width - horizontalPadding - Scale(26), footerTop, Scale(26), footerHeight);
             Margin = new Padding(0, 0, 0, Scale(10));
             Height = Math.Max(_bubble.Bottom, _mine ? 0 : Avatar.Bottom);
+            RefreshActionPointer();
         }
         finally { _layingOut = false; }
     }
@@ -273,6 +340,9 @@ internal sealed class MessageRow : Panel
         // Reflow/reordering can move an existing child HWND without repainting its
         // cached background. Its wallpaper sample must follow the new window origin.
         Invalidate(invalidateChildren: true);
+        // Scrolling may move a row away from a stationary pointer without a
+        // MouseLeave event. Recheck that one moved row, without polling timers.
+        RefreshActionPointer();
     }
 
     private int Scale(int value) => Math.Max(1, (int)Math.Round(value * DeviceDpi / 96f));
@@ -301,6 +371,9 @@ internal sealed class MessageRow : Panel
             throw new InvalidOperationException("Mesaj zamanı ve teslim göstergesi çakışıyor.");
         if (IsStarred && (_star.Left < _time.Right || _star.Right > (_receipt?.Left ?? _bubble.Width) ||
             _star.Bottom > _bubble.Height)) throw new InvalidOperationException("Mesaj yıldızı zaman veya teslim göstergesiyle çakışıyor.");
+        if (_messageMenu is not null && (_actionButton.Left < 0 || _actionButton.Right > ClientSize.Width ||
+            _actionButton.Bottom > ClientSize.Height || _actionButton.Bounds.IntersectsWith(_bubble.Bounds)))
+            throw new InvalidOperationException("Mesaj seçenekleri balonun üzerine veya satır dışına taşıyor.");
     }
 
     private sealed class StarIndicator : Control
@@ -392,7 +465,17 @@ internal sealed class MessageRow : Panel
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _picture?.Image?.Dispose(); _voicePlayer?.Dispose(); }
+        if (disposing)
+        {
+            if (_messageMenu is { } menu)
+            {
+                _messageMenu = null;
+                menu.Opened -= MessageMenuOpened;
+                menu.Closed -= MessageMenuClosed;
+                menu.Dispose();
+            }
+            _picture?.Image?.Dispose(); _voicePlayer?.Dispose();
+        }
         base.Dispose(disposing);
     }
 }

@@ -60,10 +60,14 @@ internal sealed partial class MainForm
         // surfaces; the arrival tests above use an observer, never FlashWindowEx.
         form._chatNotificationForegroundForQa = null;
         form.Activate(); form._premiumComposer.Focus(); Application.DoEvents();
+        HistoryQaUntil(() => form.ContainsFocus);
         Require(form.ChatNotificationForeground(), "The native focused composer counts as foreground and suppresses notification interruption");
         using (var child = new ModernForm { Text = "Notification QA owned child", Size = new Size(260, 180) })
         {
             child.Show(form); child.Activate(); Application.DoEvents();
+            // Window-manager activation is asynchronous. Wait for the actual
+            // owned HWND rather than replacing the predicate with a fake value.
+            HistoryQaUntil(() => ReferenceEquals(ActiveForm, child));
             Require(form.ChatNotificationForeground(), "A native active form owned by the chat is foreground, not another app");
             child.Hide();
         }

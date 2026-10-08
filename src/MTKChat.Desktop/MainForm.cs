@@ -700,17 +700,27 @@ internal sealed partial class MainForm : ModernForm
         row.SetStarred(!message.DeletedForEveryone && ChatPreferences()?.IsStarred(message.ConversationId, message.Id) == true);
         if (!message.DeletedForEveryone)
         {
-            var star = menu.Items.Add("Yıldızla", null, (_, _) => ToggleMessageStar(row));
+            var star = menu.Items.AddAction("Yıldızla", ModernMenuIcon.Star, (_, _) => ToggleMessageStar(row));
             menu.Opening += (_, _) => { star.Text = row.IsStarred ? "Yıldızı kaldır" : "Yıldızla"; star.Enabled = row.CanStar; };
             AddMessagePinAction(menu, row);
         }
         if (message.Kind == "text" && !message.DeletedForEveryone && !string.IsNullOrEmpty(displayText))
-            menu.Items.Add("Metni kopyala", null, (_, _) => Clipboard.SetText(displayText));
-        menu.Items.Add("Benden sil", null, async (_, _) => await DeleteAsync(message.Id, false)).ForeColor = Theme.Danger;
+        {
+            var copy = menu.Items.AddAction("Metni kopyala", ModernMenuIcon.Copy, (_, _) =>
+            {
+                if (row.IsDisposed || !row.CanStar) return;
+                try { Clipboard.SetText(displayText); }
+                catch (System.Runtime.InteropServices.ExternalException) { ShowError("Pano şu anda kullanılamıyor. Tekrar deneyin."); }
+            });
+            menu.Opening += (_, _) => copy.Enabled = row.CanStar;
+        }
+        if (mine && !message.DeletedForEveryone)
+            menu.Items.AddAction("Mesaj bilgisi", ModernMenuIcon.Info, (_, _) => ShowMessageInfo(message, row));
+        if (menu.Items.Count > 0) menu.Items.Add(new ToolStripSeparator());
+        menu.Items.AddAction("Benden sil", ModernMenuIcon.Delete, async (_, _) => await DeleteAsync(message.Id, false)).ForeColor = Theme.Danger;
         if (mine && !message.DeletedForEveryone)
         {
-            menu.Items.Add("Mesaj bilgisi", null, (_, _) => ShowMessageInfo(message, row));
-            var everyone = menu.Items.Add("Herkesten sil", null, async (_, _) => await DeleteAsync(message.Id, true));
+            var everyone = menu.Items.AddAction("Herkesten sil", ModernMenuIcon.Delete, async (_, _) => await DeleteAsync(message.Id, true));
             everyone.ForeColor = Theme.Danger;
             // Re-evaluate when opening: a menu created before the deadline must not
             // continue offering the action after 15 minutes. The server decides finally.
@@ -996,6 +1006,10 @@ internal sealed partial class MainForm : ModernForm
 
     private async Task DeleteAsync(Guid messageId, bool forEveryone)
     {
+        // A fast response must not dispose the row/popup during ToolStrip's
+        // ItemClicked teardown; finish closing the menu before updating history.
+        await Task.Yield();
+        if (IsDisposed || Disposing) return;
         var roomId = _messageList.Controls.OfType<MessageRow>().FirstOrDefault(r => r.MessageId == messageId)?.ConversationId;
         try
         {

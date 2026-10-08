@@ -95,6 +95,10 @@ internal sealed class StatusesPanel : UserControl
                     BorderColor = Theme.Divider, CornerRadius = 14, Margin = new Padding(0, 0, 0, S(8)), Padding = new Padding(S(10)) };
                 var top = new TableLayoutPanel { Dock = DockStyle.Top, Height = S(60), ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
                 top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(52))); top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                // An implicit AutoSize row uses the nested labels' preferred height,
+                // which can exceed this fixed header and center the avatar below it.
+                // Allocate only the actual header height, not an oversized native row.
+                top.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 var avatar = new AvatarView { Anchor = AnchorStyles.None, Size = new Size(S(40), S(40)), Margin = Padding.Empty };
                 _ = _avatars.ApplyAsync(avatar, user);
                 var labels = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1, Margin = Padding.Empty };

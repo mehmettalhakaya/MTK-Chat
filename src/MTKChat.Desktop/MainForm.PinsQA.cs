@@ -93,7 +93,7 @@ internal sealed partial class MainForm
         { form.DrawToBitmap(image, new Rectangle(Point.Empty, form.Size)); image.Save(Path.Combine(directory, "pinned-messages-three.png")); }
         using (var chooser = new PinDurationForm())
         {
-            chooser.Show(); Application.DoEvents();
+            chooser.Show(form); Application.DoEvents();
             Require(chooser.DurationHours == 168, "Pin duration chooser defaults to seven days");
             var durationButton = HistoryQaControls(chooser).OfType<ModernButton>().Single(button => button.AccessibleName == "30 gün sabitleme süresi");
             durationButton.PerformClick(); Require(chooser.DurationHours == 720, "Thirty-day duration is selectable without modifying message expiry");
@@ -166,8 +166,18 @@ internal sealed partial class MainForm
         HistoryQaPump(form.RefreshPinnedMessagesAsync(force: true));
         var popupRow = form._messageList.Controls.OfType<MessageRow>().First();
         var popup = HistoryQaControls(popupRow).Select(control => control.ContextMenuStrip).First(menu => menu is not null)!;
+        // Model the production owned dialog, then wait for real native focus.
+        // A foreground-sensitive ToolStrip must not be tested on a background
+        // fixture after a previously unowned chooser relinquished activation.
+        form.Activate(); form._premiumComposer.Focus();
+        HistoryQaUntil(() => form.ContainsFocus);
+        var popupOpened = 0;
+        ToolStripDropDownCloseReason? popupCloseReason = null;
+        popup.Opened += (_, _) => popupOpened++;
+        popup.Closed += (_, e) => popupCloseReason = e.CloseReason;
         popup.Show(popupRow, new Point(12, 12)); Application.DoEvents();
-        Require(form._pinnedBanner.MessageId == messages[0].Id && popup.Visible, "An actual message popup is open beside an already copied pin preview");
+        Require(form._pinnedBanner.MessageId == messages[0].Id && popup.Visible,
+            $"An actual message popup is open beside an already copied pin preview; bannerMatches={form._pinnedBanner.MessageId == messages[0].Id}, popupVisible={popup.Visible}, rowDisposed={popupRow.IsDisposed}, opened={popupOpened}, closeReason={popupCloseReason}, ownerFocused={form.ContainsFocus}");
         form.InvalidateConversationVisibility(room.Id);
         Require(form._pinnedBanner.MessageId is null && form._pinnedBanner.PreviewForQa.Length == 0 && form._pinBannerHeight.Height == 0 &&
             form._pinnedMessages.Count == 0 && !form._pinExpiryTimer.Enabled && !popupRow.IsDisposed,

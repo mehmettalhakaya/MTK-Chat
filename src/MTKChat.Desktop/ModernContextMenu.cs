@@ -61,7 +61,7 @@ internal sealed class ModernContextMenu : ContextMenuStrip
 internal enum ModernMenuIcon
 {
     None, Favorite, Star, Archive, Mute, Clock, Unmute, Participants, Info,
-    Settings, Edit, Link, Photo, Shield, Clear, Delete, Leave, Pin
+    Settings, Edit, Link, Photo, Shield, Clear, Delete, Leave, Pin, Copy
 }
 
 internal sealed class ModernMenuItem : ToolStripMenuItem
@@ -246,6 +246,10 @@ internal sealed class ModernMenuRenderer : ToolStripProfessionalRenderer
             case ModernMenuIcon.Pin:
                 g.DrawPolygon(pen, [new(7, 2), new(14, 2), new(13, 8), new(17, 12), new(4, 12), new(8, 8)]);
                 g.DrawLine(pen, 10.5f, 12, 10.5f, 18);
+                break;
+            case ModernMenuIcon.Copy:
+                g.DrawRectangle(pen, 7, 6, 10, 12);
+                g.DrawLines(pen, [new(4, 14), new(2, 14), new(2, 2), new(12, 2), new(12, 3)]);
                 break;
         }
     }
